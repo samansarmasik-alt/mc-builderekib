@@ -5,7 +5,7 @@ require('dotenv').config();
 // AYARLAR (BURAYI DOLDUR)
 const serverIP = 'play4.eternalzero.cloud'; // Örn: 'mc.sunucum.com'
 const serverPort = 26608; // Genelde budur
-const serverVersion = '1.21.8'; // Sunucun hangi sürümse TAM ONU YAZ
+const serverVersion = '1.20.1'; // Sunucun hangi sürümse TAM ONU YAZ
 
 // Supabase (Sadece kimlik için kullanıyoruz)
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
