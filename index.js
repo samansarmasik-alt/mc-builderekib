@@ -1,101 +1,55 @@
 const mineflayer = require('mineflayer');
 const { createClient } = require('@supabase/supabase-js');
-const readline = require('readline');
-const fs = require('fs');
-const { askAI } = require('./brain');
+require('dotenv').config();
 
-// --- AYARLARI YÖNETME ---
-const CONFIG_FILE = 'config_local.json';
+// AYARLAR (BURAYI DOLDUR)
+const serverIP = 'play4.eternalzero.cloud'; // Örn: 'mc.sunucum.com'
+const serverPort = 26608; // Genelde budur
+const serverVersion = '1.21.8'; // Sunucun hangi sürümse TAM ONU YAZ
 
-// Konsoldan girdi almak için
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+// Supabase (Sadece kimlik için kullanıyoruz)
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-function askQuestion(query) {
-    return new Promise(resolve => rl.question(query, resolve));
-}
+async function startBot(role) {
+    console.log(`[${role}] Başlatılıyor...`);
 
-async function initialize() {
-    let config = {};
-
-    // 1. Ayar dosyası var mı kontrol et
-    if (fs.existsSync(CONFIG_FILE)) {
-        config = JSON.parse(fs.readFileSync(CONFIG_FILE));
-    } else {
-        console.log("⚠️  HİÇ AYAR BULUNAMADI! Lütfen Supabase bilgilerini gir.");
-        console.log("Bu bilgileri sadece bir kez gireceksin.");
-        
-        config.supabaseUrl = await askQuestion('Supabase URL: ');
-        config.supabaseKey = await askQuestion('Supabase Anon Key: ');
-        
-        fs.writeFileSync(CONFIG_FILE, JSON.stringify(config));
-        console.log("✅ Ayarlar kaydedildi! Başlatılıyor...");
-    }
-
-    // 2. Sistemi Başlat
-    startSwarm(config.supabaseUrl, config.supabaseKey);
-}
-
-// --- BOT SÜRÜSÜ MANTIĞI ---
-async function startSwarm(supaUrl, supaKey) {
-    const supabase = createClient(supaUrl, supaKey);
-
-    // Brain.js'e de bu bilgileri gönderiyoruz (Environment Variable olarak inject ediyoruz)
-    process.env.SUPABASE_URL = supaUrl;
-    process.env.SUPABASE_KEY = supaKey;
-
-    const roles = ['Mimar', 'Lojistikci', 'Insaatci'];
-    
-    console.log("📡 Sunucu IP'si bekleniyor...");
-    
-    // IP Kontrol Döngüsü
-    setInterval(async () => {
-        const { data } = await supabase.from('bot_settings').select().eq('key_name', 'server_ip').single();
-        if (data && data.value_text && data.value_text !== 'bekleniyor') {
-            // Eğer botlar henüz başlamadıysa başlat
-            // (Basitlik için burada tek seferlik başlatma mantığı varsayalım)
-        }
-    }, 5000);
-
-    roles.forEach(role => createBot(role, supabase));
-}
-
-async function createBot(role, supabase) {
-    // ... (Önceki bot kodunun aynısı buraya gelecek) ...
-    // Sadece IP çekme kısmını bekleme döngüsüne almalısın:
-    
-    let serverIP = 'bekleniyor';
-    while(serverIP === 'bekleniyor') {
-        const { data } = await supabase.from('bot_settings').select().eq('key_name', 'server_ip').single();
-        if(data) serverIP = data.value_text;
-        if(serverIP === 'bekleniyor') await new Promise(r => setTimeout(r, 5000));
-    }
-
-    // Kimlik işlemleri...
+    // Kimlik oluşturma/çekme
     let { data: identity } = await supabase.from('bot_identities').select().eq('role', role).single();
+    
     if (!identity) {
-        const newName = `Hydra_${role.substring(0,3)}_${Math.floor(Math.random()*999)}`;
-        const newPass = Math.random().toString(36).slice(-8);
+        const newName = `Hydra_${role.substring(0,3)}_${Math.floor(Math.random() * 999)}`;
+        const newPass = "Hydra123!";
         await supabase.from('bot_identities').insert({ role, username: newName, password: newPass });
         identity = { username: newName, password: newPass };
+        console.log(`[${role}] Yeni kimlik oluşturuldu: ${newName}`);
     }
 
-    console.log(`[${role}] Bağlanıyor: ${serverIP} (${identity.username})`);
+    console.log(`[${role}] Bağlanmaya çalışıyor: ${serverIP} Sürüm: ${serverVersion}`);
 
     const bot = mineflayer.createBot({
         host: serverIP,
+        port: serverPort,
         username: identity.username,
-        version: "1.21.8"
+        version: serverVersion
     });
 
-    // ... (Diğer event listenerlar ve brain.js kullanımı aynı) ...
-    // Groq API hatası alırsan:
-    bot.on('chat', async (username, message) => {
-        if(message.includes('test')) {
-            const cevap = await askAI("Deneme", 'fast'); // Brain.js artık Supabase'den key çekiyor
-            bot.chat(cevap);
-        }
+    // --- HATA TAKİBİ (BURASI ÇOK ÖNEMLİ) ---
+    bot.on('login', () => {
+        console.log(`[${role}] SUNUCUYA GİRİŞ YAPTI!`);
+    });
+
+    bot.on('error', (err) => {
+        console.log(`[${role}] BAĞLANTI HATASI:`, err.message);
+    });
+
+    bot.on('kicked', (reason) => {
+        console.log(`[${role}] SUNUCUDAN ATILDI:`, reason);
+    });
+
+    bot.on('end', () => {
+        console.log(`[${role}] Bağlantı kapandı.`);
     });
 }
 
-// Uygulamayı başlat
-initialize();
+// Botları sırayla başlat
+['Mimar', 'Insaatci'].forEach(role => startBot(role));
