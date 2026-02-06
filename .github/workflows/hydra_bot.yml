@@ -1,25 +1,21 @@
-name: Hydra AI Swarm
+name: Hydra-Run
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # Bu butonla botu elle başlatmanı sağlar
+  workflow_dispatch:
 
 jobs:
-  run-bot:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
-      - name: Setup Node.js
+      - name: Use Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '20' # En güncel sürümü GitHub bize sağlıyor!
-
-      - name: Install Dependencies
-        - name: Install Dependencies
-        run: npm install mineflayer@4.20.0 mineflayer-pathfinder@2.4.3 minecraft-data vec3 @supabase/supabase-js groq-sdk
-
-      - name: Run Hydra Bot
+          node-version: '20'
+      - name: Install
+        run: npm install
+      - name: Run
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
