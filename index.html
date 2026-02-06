@@ -2,80 +2,41 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <title>Hydra AI - Controller</title>
+    <title>HYDRA CONTROL UNIT</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        :root { --p: #00ff41; --bg: #050505; }
-        body { background: var(--bg); color: var(--p); font-family: monospace; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .box { border: 1px solid var(--p); padding: 30px; width: 350px; text-align: center; box-shadow: 0 0 20px rgba(0,255,65,0.2); }
-        input { background: #111; border: 1px solid #333; color: #fff; padding: 10px; width: 100%; margin: 10px 0; box-sizing: border-box; }
-        button { background: var(--p); color: #000; border: none; padding: 10px; width: 100%; cursor: pointer; font-weight: bold; }
-        .change-server { font-size: 10px; color: #666; cursor: pointer; text-decoration: underline; margin-top: 10px; display: block; }
-        #adminPanel { display: none; }
+        body { background: #000; color: #00ff41; font-family: 'Courier New', monospace; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .terminal { border: 1px solid #00ff41; padding: 20px; width: 300px; box-shadow: 0 0 15px #00ff41; }
+        input { background: #000; border: 1px solid #00ff41; color: #00ff41; width: 100%; padding: 10px; margin: 10px 0; box-sizing: border-box; }
+        button { background: #00ff41; color: #000; border: none; width: 100%; padding: 10px; cursor: pointer; font-weight: bold; }
+        .status { font-size: 10px; margin-top: 10px; color: #555; }
     </style>
 </head>
 <body>
-
-    <div id="loginOverlay" class="box">
-        <h2>HYDRA LOG-IN</h2>
-        <p id="targetServer" style="font-size: 12px; color: #888;">Hedef: play4.eternalzero.cloud</p>
-        <input type="text" id="bossNameInput" placeholder="Kullanıcı Adını Yaz">
-        <button onclick="startSystem()">SİSTEMİ BAŞLAT</button>
-        <span class="change-server" onclick="toggleServerSettings()">Sunucu Ayarlarını Değiştir</span>
-        
-        <div id="serverSettings" style="display:none; margin-top:15px; border-top: 1px dashed #333; padding-top:10px;">
-            <input type="text" id="newIp" placeholder="Yeni IP (Örn: oyna.mc.com)">
-            <button style="background:#333; color:#fff; font-size:11px;" onclick="updateIp()">IP GÜNCELLE</button>
-        </div>
-    </div>
-
-    <div id="adminPanel" class="box">
-        <h3 style="color:#fff;">SİSTEM AKTİF</h3>
-        <p style="font-size:12px;">Patron: <span id="activeBoss">...</span></p>
-        <p style="font-size:11px; color:#888;">Botlar sunucuya yönlendirildi.</p>
-        <button onclick="location.reload()" style="background:#ff3333;">BAĞLANTIYI KES</button>
+    <div class="terminal">
+        <h3>> HYDRA_LOGIN</h3>
+        <input type="text" id="boss" placeholder="USER_ID">
+        <button onclick="connect()">EXECUTE</button>
+        <div id="out" class="status">Sistem hazır...</div>
     </div>
 
     <script>
-        // SABİT BİLGİLERİN (Senin verdiklerin)
         const SUPA_URL = "https://yiadkkvsmupoftppdfgl.supabase.co";
         const SUPA_KEY = "sb_publishable_HFHs-7SG3yJY2hVdPnpZUQ_SL6kcumG";
-        const DEFAULT_IP = "play4.eternalzero.cloud:26608";
+        const client = supabase.createClient(SUPA_URL, SUPA_KEY);
 
-        const supabase = window.supabase.createClient(SUPA_URL, SUPA_KEY);
+        async function connect() {
+            const name = document.getElementById('boss').value;
+            if(!name) return alert("Kimlik belirtilmedi.");
+            
+            document.getElementById('out').innerText = "Veritabanı güncelleniyor...";
+            
+            // Ayarları Supabase'e bas (Node.js buradaki veriyi okuyacak)
+            await client.from('bot_settings').upsert({ key_name: 'boss_name', value_text: name });
+            await client.from('bot_settings').upsert({ key_name: 'server_ip', value_text: "play4.eternalzero.cloud:26608" });
 
-        async function startSystem() {
-            const boss = document.getElementById('bossNameInput').value.trim();
-            if(!boss) return alert("Lütfen adını yaz patron!");
-
-            try {
-                // Supabase'e patron adını ve sabit IP'yi gönder
-                await supabase.from('bot_settings').upsert({ key_name: 'boss_name', value_text: boss });
-                await supabase.from('bot_settings').upsert({ key_name: 'server_ip', value_text: DEFAULT_IP });
-                
-                // Panel Değişimi
-                document.getElementById('activeBoss').innerText = boss;
-                document.getElementById('loginOverlay').style.display = 'none';
-                document.getElementById('adminPanel').style.display = 'block';
-
-                console.log("Sistem uykudan uyandı...");
-            } catch (err) {
-                alert("Bağlantı Hatası: " + err.message);
-            }
-        }
-
-        function toggleServerSettings() {
-            const el = document.getElementById('serverSettings');
-            el.style.display = el.style.display === 'none' ? 'block' : 'none';
-        }
-
-        async function updateIp() {
-            const newIp = document.getElementById('newIp').value.trim();
-            if(newIp) {
-                await supabase.from('bot_settings').upsert({ key_name: 'server_ip', value_text: newIp });
-                document.getElementById('targetServer').innerText = "Hedef: " + newIp;
-                alert("Hedef sunucu güncellendi!");
-            }
+            document.getElementById('out').innerText = "Sistem aktif. Botları başlatabilirsiniz.";
+            alert("Patron " + name + " onaylandı. Botlar terminalden başlatılabilir.");
         }
     </script>
 </body>
