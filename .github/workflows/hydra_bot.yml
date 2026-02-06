@@ -16,7 +16,8 @@ jobs:
           node-version: '20' # En güncel sürümü GitHub bize sağlıyor!
 
       - name: Install Dependencies
-        run: npm install mineflayer@4.20.0 @supabase/supabase-js groq-sdk
+        - name: Install Dependencies
+        run: npm install mineflayer@4.20.0 mineflayer-pathfinder@2.4.3 minecraft-data vec3 @supabase/supabase-js groq-sdk
 
       - name: Run Hydra Bot
         env:
