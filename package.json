@@ -1,6 +1,8 @@
 {
-  "name": "hydra-swarm",
+  "name": "hydra-mimar",
   "version": "1.0.0",
+  "description": "Hydra AI Mimar Bot",
+  "main": "index.js",
   "dependencies": {
     "mineflayer": "^4.20.0",
     "mineflayer-pathfinder": "^2.4.3",
