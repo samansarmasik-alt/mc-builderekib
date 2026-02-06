@@ -4,7 +4,6 @@ const { createClient } = require('@supabase/supabase-js');
 const { Groq } = require('groq-sdk');
 const v = require('vec3');
 
-// --- BAĞLANTILAR ---
 const SUPA_URL = process.env.SUPABASE_URL;
 const SUPA_KEY = process.env.SUPABASE_KEY;
 const GROQ_KEY = process.env.GROQ_API_KEY;
@@ -24,73 +23,59 @@ function startBot() {
         port: 26608,
         username: 'Hydra_Mimar',
         version: "1.20.1",
-        auth: 'offline',
-        checkTimeoutInterval: 60000 // Bağlantı zaman aşımını uzattık
+        auth: 'offline'
     });
 
     bot.loadPlugin(pathfinder);
 
-    // --- DOĞUŞ VE HAYATTA KALMA ---
-    bot.on('spawn', () => {
-        logToWeb(role, "Sunucuya Girdi ve Sabitlendi!");
-        
-        // 1. Giriş Komutları (Gecikmeli yaparak kick yemeyi önlüyoruz)
-        setTimeout(() => bot.chat("/register H123456 H123456"), 1000);
-        setTimeout(() => bot.chat("/login H123456"), 2000);
+    // --- AKILLI GİRİŞ SİSTEMİ ---
+    bot.on('message', (jsonMsg) => {
+        const msg = jsonMsg.toString();
+        // Sunucu mesajlarını terminale bas ki neden atıldığını görelim
+        if (msg.includes("kayıt") || msg.includes("register") || msg.includes("şifre")) {
+            logToWeb(role, "Sunucu Mesajı: " + msg);
+        }
 
-        // 2. Anti-AFK (30 saniyede bir küçük bir hareket yapar, sunucu atmasın diye)
-        setInterval(() => {
-            if (bot.entity) {
-                bot.setControlState('jump', true);
-                setTimeout(() => bot.setControlState('jump', false), 500);
-            }
-        }, 30000); 
+        if (msg.includes("/register")) {
+            bot.chat("/register H123456 H123456");
+            logToWeb(role, "Kayıt olundu.");
+        } else if (msg.includes("/login")) {
+            bot.chat("/login H123456");
+            logToWeb(role, "Giriş yapıldı.");
+        }
     });
 
-    // --- WEB TERMİNAL DİNLEYİCİ ---
+    bot.on('spawn', () => {
+        logToWeb(role, "Sunucuya Girdi! Beklemede...");
+        // Doğar doğmaz zıpla ki bot korumasına takılmasın
+        bot.setControlState('jump', true);
+        setTimeout(() => bot.setControlState('jump', false), 500);
+    });
+
+    // --- WEB KOMUTLARI ---
     supabase.channel('web_commands').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bot_logs' }, async (payload) => {
         if (payload.new.role === 'COMMAND') {
             const cmd = payload.new.message.toLowerCase();
             if (cmd === 'zıpla') {
                 bot.setControlState('jump', true);
                 setTimeout(() => bot.setControlState('jump', false), 500);
-            } else if (cmd === 'gel') {
-                // ... (Gelme kodları aynı kalabilir) ...
-            } else {
+            } else if (cmd.startsWith('/')) {
                 bot.chat(cmd);
             }
         }
     }).subscribe();
 
-    // --- AI CHAT (GÜNCEL MODEL) ---
-    bot.on('chat', async (username, message) => {
-        if (username === bot.username) return;
-        try {
-            const chatCompletion = await groq.chat.completions.create({
-                messages: [
-                    { role: 'system', content: 'Sen Minecraft mimarısın. Adın Hydra. Patronun Hasan. Kısa cevap ver.' },
-                    { role: 'user', content: message }
-                ],
-                model: 'llama-3.1-8b-instant', 
-            });
-            bot.chat(chatCompletion.choices[0].message.content);
-        } catch (e) {
-            logToWeb(role, "Zeka Hatası: " + e.message);
-        }
-    });
-
-    // --- KRİTİK: DÜŞERSE GERİ DÖN ---
+    // --- HATA VE KİCK YÖNETİMİ ---
     bot.on('kicked', (reason) => {
-        logToWeb(role, "Atıldı! Sebep: " + reason);
+        // Atılma sebebini Vercel terminaline detaylıca yazar
+        logToWeb(role, "!!! ATILDI !!! Sebep: " + JSON.stringify(reason));
     });
 
-    bot.on('error', (err) => {
-        logToWeb(role, "Hata Oluştu: " + err.message);
-    });
+    bot.on('error', (err) => logToWeb(role, "HATA: " + err.message));
 
     bot.on('end', () => {
-        logToWeb(role, "Bağlantı koptu. 10 saniye içinde tekrar deneniyor...");
-        setTimeout(startBot, 10000); // 10 saniye sonra otomatik restart
+        logToWeb(role, "Bağlantı kesildi. 15 saniye sonra yeniden denenecek...");
+        setTimeout(startBot, 15000);
     });
 }
 
