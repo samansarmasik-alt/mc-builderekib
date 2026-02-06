@@ -8,89 +8,80 @@ const { Groq } = require('groq-sdk');
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-const BOSS_NAME = "Hasan"; 
+const BOSS_NAME = "Hasan";
 
 function startBot() {
     const bot = mineflayer.createBot({
         host: 'play4.eternalzero.cloud',
         port: 26608,
-        username: 'Hydra_Isci',
+        username: 'Hydra_Gekko',
         version: "1.20.1",
         auth: 'offline'
     });
 
-    // --- YETENEKLERİ YÜKLE ---
     bot.loadPlugin(pathfinder);
     bot.loadPlugin(collectBlock);
     bot.loadPlugin(tool);
 
     bot.on('spawn', () => {
-        console.log("Hydra İşçi Modu Aktif!");
+        console.log("Beyin devrede, emirlerini bekliyorum patron!");
         bot.chat("/login H123456");
         const mcData = require('minecraft-data')(bot.version);
         bot.pathfinder.setMovements(new Movements(bot, mcData));
     });
 
-    // --- ANA EYLEM FONKSİYONU (Ağaç, Maden, Blok) ---
-    async function collectSpecificBlock(blockName, count = 1) {
+    // --- ÖZEL EYLEMLER ---
+    async function performAction(action, target, amount = 1) {
         const mcData = require('minecraft-data')(bot.version);
-        const blockType = mcData.blocksByName[blockName];
-
-        if (!blockType) {
-            bot.chat(`${blockName} diye bir blok tanımıyorum patron.`);
-            return;
-        }
-
-        const blocks = bot.findBlocks({
-            matching: blockType.id,
-            maxDistance: 64,
-            count: count
-        });
-
-        if (blocks.length > 0) {
-            bot.chat(`${blockName} buldum, topluyorum!`);
-            try {
-                const targetBlocks = blocks.map(p => bot.blockAt(p));
-                await bot.collectBlock.collect(targetBlocks);
-                bot.chat("İşlem tamamlandı.");
-            } catch (err) {
-                bot.chat("Blok toplarken bir sorun çıktı.");
+        if (action === 'collect') {
+            const blockType = mcData.blocksByName[target];
+            if (!blockType) return bot.chat("O bloğu tanımıyorum.");
+            const blocks = bot.findBlocks({ matching: blockType.id, maxDistance: 32, count: amount });
+            if (blocks.length > 0) {
+                bot.chat(`${target} toplamaya gidiyorum.`);
+                await bot.collectBlock.collect(blocks.map(p => bot.blockAt(p)));
+                bot.chat("İş bitti patron.");
+            } else {
+                bot.chat("Etrafta hiç bulamadım.");
             }
-        } else {
-            bot.chat(`Yakınlarda hiç ${blockName} bulamadım.`);
         }
     }
 
-    // --- KOMUT DİNLEYİCİ ---
+    // --- DÜŞÜNEN AI SİSTEMİ ---
     bot.on('chat', async (username, message) => {
-        if (username === bot.username) return;
-        const msg = message.toLowerCase();
+        if (username === bot.username || username !== BOSS_NAME) return;
 
-        // 1. AĞAÇ KESME KOMUTU
-        if (msg.includes("odun topla") || msg.includes("ağaç kes")) {
-            collectSpecificBlock('oak_log', 3); // Meşe odunu toplar
-            return;
-        }
+        try {
+            // AI'ya sadece sohbet değil, eylem planlatıyoruz
+            const completion = await groq.chat.completions.create({
+                messages: [
+                    { 
+                        role: 'system', 
+                        content: `Sen bir Minecraft asistanısın. Kullanıcı eylem istediğinde şu formatta yanıt ver: 
+                        ACTION:collect TARGET:oak_log AMOUNT:3 (Örnek odun toplama)
+                        ACTION:come (Yanına gelme)
+                        Sadece sohbet ise normal cevap ver.` 
+                    },
+                    { role: 'user', content: message }
+                ],
+                model: 'llama-3.1-8b-instant',
+            });
 
-        // 2. MADEN KAZMA KOMUTU
-        if (msg.includes("taş topla") || msg.includes("maden yap")) {
-            collectSpecificBlock('cobblestone', 5);
-            return;
-        }
+            const aiResponse = completion.choices[0].message.content;
 
-        // 3. AI PLANLAMA VE CEVAP
-        if (msg.includes("hydra") || username === BOSS_NAME) {
-            try {
-                const completion = await groq.chat.completions.create({
-                    messages: [{ role: 'system', content: 'Sen Minecraft yardımcısısın. Maden, odun ve inşaat işlerinden anlarsın.' }, { role: 'user', content: message }],
-                    model: 'llama-3.1-8b-instant',
-                });
-                bot.chat(completion.choices[0].message.content);
-            } catch (e) { console.log("AI Hatası"); }
-        }
+            if (aiResponse.includes("ACTION:collect")) {
+                const target = aiResponse.split("TARGET:")[1].split(" ")[0];
+                performAction('collect', target, 3);
+            } else if (aiResponse.includes("ACTION:come")) {
+                const p = bot.players[username]?.entity;
+                if (p) bot.pathfinder.setGoal(new goals.GoalNear(p.position.x, p.position.y, p.position.z, 1));
+            } else {
+                bot.chat(aiResponse);
+            }
+        } catch (e) { console.log("AI Beyin Hatası"); }
     });
 
-    bot.on('end', () => setTimeout(startBot, 10000));
+    bot.on('end', () => setTimeout(startBot, 5000));
 }
 
 startBot();
