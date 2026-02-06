@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Hydra AI Sürü Kontrol</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { background: #0a0a0a; color: #00ff41; font-family: 'Courier New', monospace; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .panel { border: 1px solid #333; background: #111; padding: 20px; margin-bottom: 20px; border-radius: 8px; }
+        h1, h3 { margin-top: 0; color: #fff; }
+        input, select { background: #222; border: 1px solid #444; color: white; padding: 8px; width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+        button { background: #00ff41; color: black; border: none; padding: 10px 20px; cursor: pointer; font-weight: bold; width: 100%; transition: 0.2s; }
+        button:hover { background: #fff; }
+        
+        /* Giriş Ekranı */
+        #loginOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 999; display: flex; align-items: center; justify-content: center; flex-direction: column; }
+        .login-box { width: 400px; padding: 30px; border: 1px solid #00ff41; text-align: center; }
+        
+        .status-ok { color: #00ff41; }
+        .status-err { color: #ff0033; }
+    </style>
+</head>
+<body>
+
+    <div id="loginOverlay">
+        <div class="login-box">
+            <h2>🔐 SİSTEM KİLİTLİ</h2>
+            <p>Veritabanı bağlantısı gerekli.</p>
+            <input type="text" id="supaUrlInput" placeholder="Supabase Project URL (https://...)" >
+            <input type="text" id="supaKeyInput" placeholder="Supabase Anon Key (eyJh...)" >
+            <button onclick="connectSystem()">BAĞLAN</button>
+            <p id="loginMsg" style="margin-top:10px; font-size:12px;"></p>
+        </div>
+    </div>
+
+    <div class="container" id="mainDashboard" style="display: none;">
+        <h1>🤖 HYDRA SÜRÜ YÖNETİMİ</h1>
+
+        <div class="panel">
+            <h3>🎮 Oyun Bağlantısı</h3>
+            <label>Patron Adı (Oyun İçi):</label>
+            <input type="text" id="bossName" placeholder="Örn: HydraBoss">
+            <label>Sunucu IP Adresi:</label>
+            <input type="text" id="serverIp" placeholder="Örn: oyna.sunucum.com">
+            <button onclick="saveGameSettings()">AYARLARI KAYDET & BOTLARI YÖNLENDİR</button>
+            <div id="gameStatus" style="margin-top: 10px;"></div>
+        </div>
+
+        <div class="panel">
+            <h3>⚡ Yapay Zeka Yakıtı (API)</h3>
+            <p>Sınırsız Groq veya Gemini anahtarı ekle. Botlar sırayla kullanır.</p>
+            <select id="providerSelect">
+                <option value="groq">Groq (Llama 3 - Hız)</option>
+                <option value="gemini">Gemini (Analiz - Akıl)</option>
+            </select>
+            <input type="text" id="newApiKey" placeholder="API Anahtarı (sk-...)">
+            <button onclick="addApiKey()">HAVUZA ANAHTAR EKLE (+)</button>
+            <div id="keyList" style="margin-top: 15px; font-size: 12px; color: #888;"></div>
+        </div>
+
+        <div class="panel">
+            <h3>👀 Canlı İzleme</h3>
+            <div id="botList">Bot verisi bekleniyor...</div>
+        </div>
+    </div>
+
+    <script>
+        let supabase;
+
+        // Sayfa yüklendiğinde hafızayı kontrol et
+        window.onload = function() {
+            const cachedUrl = localStorage.getItem('supaUrl');
+            const cachedKey = localStorage.getItem('supaKey');
+            if(cachedUrl && cachedKey) {
+                document.getElementById('supaUrlInput').value = cachedUrl;
+                document.getElementById('supaKeyInput').value = cachedKey;
+                // Otomatik bağlanmayı dene
+                connectSystem();
+            }
+        }
+
+        async function connectSystem() {
+            const url = document.getElementById('supaUrlInput').value.trim();
+            const key = document.getElementById('supaKeyInput').value.trim();
+            const msg = document.getElementById('loginMsg');
+
+            if (!url || !key) { msg.innerText = "Alanları doldur!"; return; }
+
+            try {
+                // Supabase bağlantısını test et
+                supabase = window.supabase.createClient(url, key);
+                const { data, error } = await supabase.from('bot_settings').select('*').limit(1);
+
+                if (error) throw error;
+
+                // Başarılıysa kaydet ve ekranı aç
+                localStorage.setItem('supaUrl', url);
+                localStorage.setItem('supaKey', key);
+                
+                document.getElementById('loginOverlay').style.display = 'none';
+                document.getElementById('mainDashboard').style.display = 'block';
+                
+                // Verileri çekmeye başla
+                fetchBotData();
+                listApiKeys();
+
+            } catch (err) {
+                msg.innerText = "Bağlantı Hatası: " + err.message;
+                msg.className = "status-err";
+            }
+        }
+
+        async function saveGameSettings() {
+            const boss = document.getElementById('bossName').value;
+            const ip = document.getElementById('serverIp').value;
+            
+            await supabase.from('bot_settings').upsert({ key_name: 'boss_name', value_text: boss });
+            await supabase.from('bot_settings').upsert({ key_name: 'server_ip', value_text: ip });
+            
+            document.getElementById('gameStatus').innerText = "✅ Ayarlar güncellendi!";
+        }
+
+        async function addApiKey() {
+            const provider = document.getElementById('providerSelect').value;
+            const key = document.getElementById('newApiKey').value;
+            
+            const { error } = await supabase.from('api_vault').insert({ provider, api_key: key });
+            
+            if(!error) {
+                alert("Anahtar eklendi!");
+                document.getElementById('newApiKey').value = "";
+                listApiKeys();
+            } else {
+                alert("Hata: " + error.message);
+            }
+        }
+
+        async function listApiKeys() {
+            const { data } = await supabase.from('api_vault').select('provider, api_key, is_active');
+            let html = "<strong>Aktif Anahtarlar:</strong><br>";
+            if(data) {
+                data.forEach(k => {
+                    html += `[${k.provider.toUpperCase()}] ...${k.api_key.slice(-5)} <br>`;
+                });
+            }
+            document.getElementById('keyList').innerHTML = html;
+        }
+
+        async function fetchBotData() {
+            const { data } = await supabase.from('bot_identities').select('*');
+            if(data) {
+                let html = "";
+                data.forEach(bot => {
+                    html += `<p>🤖 <b>${bot.role}:</b> ${bot.username}</p>`;
+                });
+                document.getElementById('botList').innerHTML = html;
+            }
+            setTimeout(fetchBotData, 5000);
+        }
+    </script>
+</body>
+</html>
