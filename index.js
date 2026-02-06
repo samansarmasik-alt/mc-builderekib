@@ -84,7 +84,7 @@ async function createBot(role, supabase) {
     const bot = mineflayer.createBot({
         host: serverIP,
         username: identity.username,
-        version: "1.20.1"
+        version: "1.21.8"
     });
 
     // ... (Diğer event listenerlar ve brain.js kullanımı aynı) ...
