@@ -1,72 +1,83 @@
-const v = require('vec3'); // En üste ekle
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
+const { createClient } = require('@supabase/supabase-js');
+const { Groq } = require('groq-sdk');
+const v = require('vec3');
 
-// ... (Supabase ve Groq bağlantı kodların burada kalsın) ...
+// --- BAĞLANTILAR ---
+const SUPA_URL = process.env.SUPABASE_URL || "URL_GIR";
+const SUPA_KEY = process.env.SUPABASE_KEY || "KEY_GIR";
+const GROQ_KEY = process.env.GROQ_API_KEY || "GROQ_KEY_GIR";
 
-async function startBot(role) {
+const supabase = createClient(SUPA_URL, SUPA_KEY);
+const groq = new Groq({ apiKey: GROQ_KEY });
+
+async function logToWeb(role, message) {
+    console.log(`[${role}] ${message}`);
+    await supabase.from('bot_logs').insert({ role, message });
+}
+
+async function startBot() {
+    const role = "Mimar";
     const bot = mineflayer.createBot({
-        host: host,
-        port: port,
+        host: 'play4.eternalzero.cloud',
+        port: 26608,
         username: 'Hydra_Mimar',
         version: "1.20.1",
         auth: 'offline'
     });
 
-    // PATHFINDER YÜKLE (Botun yürümesi için şart)
     bot.loadPlugin(pathfinder);
 
     bot.on('spawn', () => {
-        logToWeb(role, "Mimar hazır! Creative yetkisi bekliyorum.");
+        logToWeb(role, "Sunucuya Girdi! Siteden komut gönderebilirsin.");
+        bot.chat("/register H123456 H123456");
+        bot.chat("/login H123456");
     });
 
-    // --- İNŞAAT FONKSİYONU (Basit Bir Kule/Duvar) ---
-    async function buildSimpleStructure(position) {
-        const mcData = require('minecraft-data')(bot.version);
-        const movements = new Movements(bot, mcData);
-        bot.pathfinder.setMovements(movements);
-
-        // Elinde taş olduğundan emin ol (Creative modda her şeyi alabilir)
-        const blockType = mcData.blocksByName.stone.id;
-
-        logToWeb(role, "İnşaat başlıyor...");
-        
-        for (let y = 0; y < 5; y++) {
-            for (let x = 0; x < 3; x++) {
-                const targetPos = position.offset(x, y, 0);
-                if (bot.blockAt(targetPos).name === 'air') {
-                    await bot.lookAt(targetPos);
-                    // Creative modda blok koyma
-                    try {
-                        await bot.placeBlock(bot.blockAt(targetPos.offset(0, -1, 0)), new require('vec3')(0, 1, 0));
-                    } catch (e) {
-                        console.log("Blok koyulamadı: " + e.message);
-                    }
-                }
-            }
-        }
-        logToWeb(role, "İnşaat tamamlandı!");
-    }
-
-    // --- KOMUT DİNLEYİCİSİ (Siteden Gelen) ---
+    // --- WEB TERMİNAL DİNLEYİCİ ---
     supabase.channel('web_commands').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bot_logs' }, async (payload) => {
         if (payload.new.role === 'COMMAND') {
-            const cmd = payload.new.message;
-
-            if (cmd === 'inşaat-yap') {
-                const p = bot.entity.position.offset(2, 0, 2);
-                buildSimpleStructure(p);
+            const cmd = payload.new.message.toLowerCase();
+            
+            if (cmd === 'zıpla') {
+                bot.setControlState('jump', true);
+                setTimeout(() => bot.setControlState('jump', false), 500);
             } else if (cmd === 'gel') {
-                // Patronun (senin) yanına gelme komutu
-                const player = bot.players[bossName];
-                if (player) {
-                    const target = player.entity.position;
-                    bot.pathfinder.setGoal(new goals.GoalNear(target.x, target.y, target.z, 1));
-                    logToWeb(role, "Yanına geliyorum patron!");
+                const target = Object.values(bot.players).find(p => p.username.toLowerCase().includes("hasan"))?.entity;
+                if (target) {
+                    const mcData = require('minecraft-data')(bot.version);
+                    bot.pathfinder.setMovements(new Movements(bot, mcData));
+                    bot.pathfinder.setGoal(new goals.GoalNear(target.position.x, target.position.y, target.position.z, 1));
+                    logToWeb(role, "Patrona doğru koşuyorum!");
                 }
             } else {
-                bot.chat(cmd);
+                bot.chat(cmd); // Siteden yazılan her şeyi oyunda söyler veya /komut çalıştırır
             }
         }
     }).subscribe();
+
+    // --- AI CHAT SİSTEMİ ---
+    bot.on('chat', async (username, message) => {
+        if (username === bot.username) return;
+        
+        try {
+            const chatCompletion = await groq.chat.completions.create({
+                messages: [
+                    { role: 'system', content: 'Sen Minecraft mimarısın. Adın Hydra. Patronun adı Hasan. Kısa cevaplar ver.' },
+                    { role: 'user', content: message }
+                ],
+                model: 'llama-3.3-7b-versatile',
+            });
+            bot.chat(chatCompletion.choices[0].message.content);
+        } catch (e) {
+            logToWeb(role, "AI Hatası: " + e.message);
+        }
+    });
+
+    bot.on('error', (err) => logToWeb(role, "HATA: " + err.message));
+    bot.on('kicked', (reason) => logToWeb(role, "ATILDI: " + reason));
+    bot.on('end', () => setTimeout(startBot, 10000)); // Kapanırsa 10 sn sonra geri açılır
 }
+
+startBot();
