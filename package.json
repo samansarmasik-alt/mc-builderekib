@@ -1,14 +1,9 @@
-{
-  "name": "hydra-mimar",
-  "version": "1.0.0",
-  "description": "Hydra AI Mimar Bot",
-  "main": "index.js",
-  "dependencies": {
-    "mineflayer": "^4.20.0",
-    "mineflayer-pathfinder": "^2.4.3",
-    "minecraft-data": "^3.59.0",
-    "vec3": "^0.1.8",
-    "@supabase/supabase-js": "^2.39.0",
-    "groq-sdk": "^0.3.3"
-  }
+"dependencies": {
+  "mineflayer": "^4.20.0",
+  "mineflayer-pathfinder": "^2.4.3",
+  "mineflayer-collectblock": "^1.3.1",
+  "mineflayer-tool": "^1.2.0",
+  "minecraft-data": "^3.59.0",
+  "groq-sdk": "^0.3.3",
+  "@supabase/supabase-js": "^2.39.0"
 }
