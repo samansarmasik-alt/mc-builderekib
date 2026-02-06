@@ -81,35 +81,37 @@
         }
 
         async function connectSystem() {
-            const url = document.getElementById('supaUrlInput').value.trim();
-            const key = document.getElementById('supaKeyInput').value.trim();
-            const msg = document.getElementById('loginMsg');
+    const url = document.getElementById('supaUrlInput').value.trim();
+    const key = document.getElementById('supaKeyInput').value.trim();
 
-            if (!url || !key) { msg.innerText = "Alanları doldur!"; return; }
+    if (!url || !key) {
+        alert("Lütfen Supabase URL ve Anon Key girin!");
+        return;
+    }
 
-            try {
-                // Supabase bağlantısını test et
-                supabase = window.supabase.createClient(url, key);
-                const { data, error } = await supabase.from('bot_settings').select('*').limit(1);
+    try {
+        // Bağlantıyı başlat
+        const { createClient } = window.supabase;
+        supabase = createClient(url, key);
 
-                if (error) throw error;
+        // Test sorgusu: bot_settings tablosundan veri çekmeyi dene
+        const { data, error } = await supabase.from('bot_settings').select('*').limit(1);
 
-                // Başarılıysa kaydet ve ekranı aç
-                localStorage.setItem('supaUrl', url);
-                localStorage.setItem('supaKey', key);
-                
-                document.getElementById('loginOverlay').style.display = 'none';
-                document.getElementById('mainDashboard').style.display = 'block';
-                
-                // Verileri çekmeye başla
-                fetchBotData();
-                listApiKeys();
-
-            } catch (err) {
-                msg.innerText = "Bağlantı Hatası: " + err.message;
-                msg.className = "status-err";
-            }
+        if (error) {
+            alert("Supabase Bağlantı Hatası: " + error.message + "\n(Tabloları SQL Editor ile oluşturdunuz mu?)");
+            return;
         }
+
+        // Başarılıysa paneli aç
+        localStorage.setItem('supaUrl', url);
+        localStorage.setItem('supaKey', key);
+        document.getElementById('loginOverlay').style.display = 'none';
+        document.getElementById('mainDashboard').style.display = 'block';
+
+    } catch (err) {
+        alert("Kritik Hata: " + err.message);
+    }
+}
 
         async function saveGameSettings() {
             const boss = document.getElementById('bossName').value;
