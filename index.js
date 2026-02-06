@@ -1,3 +1,4 @@
+const v = require('vec3'); // En üste ekle
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 
