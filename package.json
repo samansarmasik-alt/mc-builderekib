@@ -1,14 +1,11 @@
 {
   "name": "hydra-swarm",
   "version": "1.0.0",
+  "description": "Hydra AI Swarm for Node 16",
   "main": "index.js",
   "dependencies": {
-    "mineflayer": "^4.20.1",
-    "mineflayer-pathfinder": "^2.4.5",
-    "mineflayer-auto-eat": "^3.3.1",
+    "mineflayer": "^4.20.0",
     "@supabase/supabase-js": "^2.39.0",
-    "groq-sdk": "^0.3.3",
-    "@google/generative-ai": "^0.1.0",
-    "dotenv": "^16.3.1"
+    "groq-sdk": "^0.3.3"
   }
 }
