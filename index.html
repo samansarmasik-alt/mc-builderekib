@@ -2,22 +2,32 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <title>HYDRA CONTROL UNIT</title>
+    <title>HYDRA OS - TERMINAL</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        body { background: #000; color: #00ff41; font-family: 'Courier New', monospace; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .terminal { border: 1px solid #00ff41; padding: 20px; width: 300px; box-shadow: 0 0 15px #00ff41; }
-        input { background: #000; border: 1px solid #00ff41; color: #00ff41; width: 100%; padding: 10px; margin: 10px 0; box-sizing: border-box; }
-        button { background: #00ff41; color: #000; border: none; width: 100%; padding: 10px; cursor: pointer; font-weight: bold; }
-        .status { font-size: 10px; margin-top: 10px; color: #555; }
+        body { background: #000; color: #00ff41; font-family: 'Courier New', monospace; margin: 0; display: flex; flex-direction: column; height: 100vh; }
+        .header { border-bottom: 1px solid #00ff41; padding: 10px; display: flex; justify-content: space-between; background: #050505; }
+        #terminal { flex: 1; overflow-y: auto; padding: 20px; font-size: 14px; line-height: 1.6; }
+        .input-area { border-top: 1px solid #00ff41; padding: 15px; background: #050505; }
+        input { background: #000; border: 1px solid #00ff41; color: #00ff41; padding: 8px; width: 200px; outline: none; }
+        button { background: #00ff41; color: #000; border: none; padding: 8px 20px; cursor: pointer; font-weight: bold; }
+        .log-line { margin-bottom: 5px; border-left: 2px solid #222; padding-left: 10px; }
+        .time { color: #888; font-size: 11px; margin-right: 10px; }
     </style>
 </head>
 <body>
-    <div class="terminal">
-        <h3>> HYDRA_LOGIN</h3>
-        <input type="text" id="boss" placeholder="USER_ID">
-        <button onclick="connect()">EXECUTE</button>
-        <div id="out" class="status">Sistem hazır...</div>
+    <div class="header">
+        <span>HYDRA CORE V1.0 - STATUS: <span id="status">ONLINE</span></span>
+        <span>SERVER: play4.eternalzero.cloud</span>
+    </div>
+
+    <div id="terminal">
+        <div class="log-line">Sistem başlatıldı. Terminal bekleniyor...</div>
+    </div>
+
+    <div class="input-area">
+        <input type="text" id="bossName" placeholder="Kullanıcı Adı">
+        <button onclick="saveSettings()">SİSTEMİ TETİKLE</button>
     </div>
 
     <script>
@@ -25,19 +35,27 @@
         const SUPA_KEY = "sb_publishable_HFHs-7SG3yJY2hVdPnpZUQ_SL6kcumG";
         const client = supabase.createClient(SUPA_URL, SUPA_KEY);
 
-        async function connect() {
-            const name = document.getElementById('boss').value;
-            if(!name) return alert("Kimlik belirtilmedi.");
-            
-            document.getElementById('out').innerText = "Veritabanı güncelleniyor...";
-            
-            // Ayarları Supabase'e bas (Node.js buradaki veriyi okuyacak)
+        async function saveSettings() {
+            const name = document.getElementById('bossName').value;
             await client.from('bot_settings').upsert({ key_name: 'boss_name', value_text: name });
-            await client.from('bot_settings').upsert({ key_name: 'server_ip', value_text: "play4.eternalzero.cloud:26608" });
-
-            document.getElementById('out').innerText = "Sistem aktif. Botları başlatabilirsiniz.";
-            alert("Patron " + name + " onaylandı. Botlar terminalden başlatılabilir.");
+            addLog("Ayarlar güncellendi: " + name);
         }
+
+        function addLog(msg) {
+            const term = document.getElementById('terminal');
+            const line = document.createElement('div');
+            line.className = "log-line";
+            line.innerHTML = `<span class="time">${new Date().toLocaleTimeString()}</span> > ${msg}`;
+            term.appendChild(line);
+            term.scrollTop = term.scrollHeight;
+        }
+
+        // CANLI TERMİNAL AKIŞI (Supabase'den okur)
+        client.channel('bot_logs')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bot_logs' }, payload => {
+                addLog(`[${payload.new.role}] ${payload.new.message}`);
+            })
+            .subscribe();
     </script>
 </body>
 </html>
