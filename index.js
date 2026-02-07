@@ -10,26 +10,26 @@ const v = require('vec3');
 
 // --- AYARLAR ---
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-let MASTER_NAME = "Hasan"; // Varsayılan patron, 'hydraaktif' ile değişir.
 const HOST = 'play4.eternalzero.cloud';
 const PORT = 26608;
 
-// Tüm botların listesi
-const bots = [];
+// GLOBAL DEĞİŞKENLER
+let MASTER_NAME = ""; // "hydraaktif" yazan kişi buraya atanacak
+const activeBots = []; // Tüm botların listesi
 
-// --- BOT FABRİKASI ---
-function createHydra(name) {
-    console.log(`[SİSTEM] Yeni birim oluşturuluyor: ${name}`);
+// --- BOT OLUŞTURUCU (FABRİKA) ---
+function createHydra(botName) {
+    console.log(`[SİSTEM] ${botName} hazırlanıyor...`);
     
     const bot = mineflayer.createBot({
         host: HOST,
         port: PORT,
-        username: name,
+        username: botName,
         version: "1.20.1",
         auth: 'offline'
     });
 
-    // Eklentiler
+    // EKLENTİLERİ YÜKLE
     bot.loadPlugin(pathfinder);
     bot.loadPlugin(collectBlock);
     bot.loadPlugin(tool);
@@ -38,189 +38,152 @@ function createHydra(name) {
     bot.loadPlugin(armorManager);
 
     bot.on('spawn', () => {
-        console.log(`[${name}] Sahaya indi!`);
+        console.log(`[${botName}] Sahaya indi!`);
+        activeBots.push(bot);
         bot.chat("/login H123456");
-        bots.push(bot); // Listeye ekle
-
-        // Hareket ayarları (Creative/Survival Dinamik)
-        updateMovements(bot);
         
-        // Zırh ve Yemek
+        // Hareket ayarlarını yap
+        const mcData = require('minecraft-data')(bot.version);
+        const moves = new Movements(bot, mcData);
+        moves.canDig = true;
+        moves.allow1by1towers = true; 
+        bot.pathfinder.setMovements(moves);
+        
+        // Otonom Hazırlık
         bot.armorManager.equipAll();
         bot.autoEat.options = { priority: 'foodPoints', startAt: 15, bannedFood: [] };
     });
 
-    // --- DİNAMİK HAREKET AYARI ---
-    function updateMovements(bot) {
-        const mcData = require('minecraft-data')(bot.version);
-        const moves = new Movements(bot, mcData);
-        
-        if (bot.player.gamemode === 1) { // Creative
-            moves.canFly = true;
-            moves.creative = true;
-            moves.canDig = false; // Anında kırar
-        } else { // Survival
-            moves.canDig = true;
-            moves.allow1by1towers = true;
-            moves.canFly = false;
-        }
-        bot.pathfinder.setMovements(moves);
-    }
-
-    // --- CRAFTING SİSTEMİ (Basit) ---
-    async function craftItem(itemName, count = 1) {
-        const mcData = require('minecraft-data')(bot.version);
-        const item = mcData.itemsByName[itemName];
-        const recipe = bot.recipesFor(item.id, null, 1, null)[0];
-
-        if (!recipe) {
-            bot.chat("Bunun tarifini bilmiyorum veya malzemem eksik.");
-            return;
-        }
-        
-        bot.chat(`${itemName} üretiyorum...`);
-        try {
-            await bot.craft(recipe, count, null);
-            bot.chat("Üretim tamam!");
-        } catch (err) {
-            bot.chat("Üretirken sorun çıktı: " + err.message);
-        }
-    }
-
-    // --- EYLEM BEYNİ (GROQ) ---
+    // --- ANA ZEKA DÖNGÜSÜ ---
     bot.on('chat', async (username, message) => {
         if (username === bot.username) return;
 
-        // 1. YÖNETİCİ SEÇİMİ VE ÇOĞALMA
+        // 1. PATRONU TANIMA (EN ÖNEMLİ KISIM)
         if (message.toLowerCase() === "hydraaktif") {
-            MASTER_NAME = username;
-            bot.chat(`Artık patronum sensin: ${MASTER_NAME}`);
+            MASTER_NAME = username; // Yazan kişiyi patron yap
+            bot.chat(`Emredersin patron! Hedef: ${MASTER_NAME}`);
+            console.log(`[${botName}] Yeni Patron: ${MASTER_NAME}`);
             return;
         }
+
+        // 2. SADECE PATRONU DİNLE
+        if (MASTER_NAME === "" || username !== MASTER_NAME) return;
+
+        // 3. ÇOĞALMA KOMUTU
         if (message.toLowerCase() === "hydracogal") {
-            if (username === MASTER_NAME) {
-                bot.chat("Kopyalanıyorum...");
-                const newId = Math.floor(Math.random() * 1000);
-                createHydra(`Hydra_${newId}`);
+            // Sadece Lider cevap versin, hepsi aynı anda doğurmasın
+            if (bot.username === "Hydra_Lider" || bot === activeBots[0]) {
+                const newName = `Hydra_${Math.floor(Math.random() * 900) + 100}`;
+                bot.chat(`${newName} kodlu destek birimi çağırılıyor!`);
+                createHydra(newName);
             }
             return;
         }
 
-        // Sadece patronu dinle
-        if (username !== MASTER_NAME) return;
-
-        // TPA Kabul Etme
-        if (message.includes("/tpa") || message.includes("ışınlan")) {
-            bot.chat("/tpaccept");
+        // 4. HIZLI KOMUTLAR (AI Beklemeden Yapılacaklar)
+        const msg = message.toLowerCase();
+        if (msg.includes("gel") || msg.includes("takip")) {
+            const target = bot.players[MASTER_NAME]?.entity;
+            if (target) {
+                bot.chat("Geliyorum!");
+                bot.pathfinder.setGoal(new goals.GoalFollow(target, 2), true);
+            } else {
+                bot.chat("/tpa " + MASTER_NAME);
+            }
+            return; // AI'ya sorma, yap geç.
+        }
+        
+        if (msg.includes("dur") || msg.includes("bekle")) {
+            bot.pathfinder.setGoal(null);
+            bot.chat("Durdum.");
+            return;
         }
 
-        // --- AI ANALİZİ ---
-        // Her bot mesajı alır ama sadece kendine uygunsa yapar.
-        const status = {
-            name: bot.username,
-            mode: bot.player.gamemode === 1 ? "Creative" : "Survival",
-            inventory: bot.inventory.items().map(i => i.name).join(','),
-            pos: bot.entity.position.floored(),
-            master_pos: bot.players[MASTER_NAME]?.entity?.position?.floored() || "Bilinmiyor"
-        };
-
-        // Gecikme önleyici (Tüm botlar aynı anda API'ye yüklenmesin diye ufak random gecikme)
+        // 5. KARMAŞIK İŞLER (AI DEVREYE GİRER)
+        // "Odun topla", "Saldır", "Kaz", "Eşya ver" gibi işler
+        
+        // Gecikme ekle ki hepsi aynı anda konuşmasın
         await new Promise(r => setTimeout(r, Math.random() * 2000));
 
-        const prompt = `
-        Sen ${bot.username}. Oyun Modun: ${status.mode}.
-        Patron (${MASTER_NAME}) dedi ki: "${message}"
-        
-        GÖREVİN: Bu emrin SANA verilip verilmediğini anla.
-        - Eğer emir genel ise ("Biriniz odun kessin") ve isminle uyumluysa veya rastgele seçilirse yap.
-        - Eğer direkt ismin söylenirse ("${bot.username} gel") yap.
-        
-        YAPABİLECEKLERİN (JSON DÖN):
-        1. { "action": "craft", "item": "iron_axe" } -> Aletin yoksa üret.
-        2. { "action": "collect", "target": "log" } -> Blok topla. (Creative ise /give kullanır)
-        3. { "action": "command", "cmd": "/tp ..." } -> Komut yaz.
-        4. { "action": "follow" } -> Patronu takip et.
-        5. { "action": "nothing" } -> Emir bana değil.
+        const status = {
+            bot: bot.username,
+            inventory: bot.inventory.items().map(i => i.name).join(',') || "boş",
+            gamemode: bot.player.gamemode === 1 ? "Creative" : "Survival"
+        };
 
-        DURUM: Envanter: ${status.inventory}.
+        const prompt = `
+        Sen ${bot.username}. Patronun: ${MASTER_NAME}.
+        Komut: "${message}"
         
-        KURAL: Creative moddaysan toplama yapma, "command" ile kendine ver (/give @s item).
-        KURAL: Survivaldaysan ve "balta yoksa", önce "craft" action ver.
+        GÖREV:
+        Eğer komut genel ise ("biriniz odun toplasın") ve sen boşsan üstlen.
+        Eğer direkt sana ise ("${bot.username} kaz") yap.
+        
+        CEVAP FORMATI (JSON):
+        1. { "action": "collect", "target": "log" } (Creative ise /give yapar, survival ise kazar)
+        2. { "action": "fight", "target": "Zombie" } (Veya oyuncu adı)
+        3. { "action": "craft", "item": "stick" }
+        4. { "action": "chat", "msg": "..." }
+        5. { "action": "ignore" } (Eğer komut bana değilse)
+
+        DURUM: Mod: ${status.gamemode}, Çanta: ${status.inventory}
+        Survival modunda ve aletin yoksa önce alet yapmayı (craft) düşün.
         `;
 
         try {
             const completion = await groq.chat.completions.create({
                 messages: [{ role: 'system', content: prompt }],
                 model: 'llama-3.3-70b-versatile',
-                temperature: 0.1
+                temperature: 0.2
             });
 
             let response = completion.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
             const decision = JSON.parse(response);
-            
+
+            if (decision.action === "ignore") return;
+
             console.log(`[${bot.username}] Karar: ${decision.action}`);
 
-            executeAction(bot, decision, status);
-
-        } catch (e) {
-            // Hata olursa sessiz kal
-        }
-    });
-
-    // --- EYLEM UYGULAYICI ---
-    async function executeAction(bot, data, status) {
-        if (data.action === "nothing") return;
-
-        if (data.action === "command") {
-            bot.chat(data.cmd);
-        }
-        else if (data.action === "craft") {
-            // Basitçe crafting table bulup yapmaya çalışır
-            // Survival mantığı
-            if (status.mode === "Survival") {
-                const table = bot.findBlock({ matching: b => b.name === 'crafting_table' });
-                if (table) {
-                    bot.pathfinder.goto(new goals.GoalNear(table.position.x, table.position.y, table.position.z, 1));
-                    await craftItem(data.item);
-                } else {
-                    bot.chat("Çalışma masası bulamadım, önce onu yapmam lazım.");
-                    // Burada odun varsa masaya çevirme eklenebilir
-                }
+            // EYLEMLERİ UYGULA
+            if (decision.action === "chat") {
+                bot.chat(decision.msg);
             }
-        }
-        else if (data.action === "collect") {
-            if (status.mode === "Creative") {
-                bot.chat(`/give @s ${data.target} 64`);
-                bot.chat("Creative güçlerimle aldım!");
-            } else {
-                // Survival Toplama
-                const blockType = bot.registry.blocksByName[data.target] || bot.registry.blocksByName['oak_log'];
-                if (blockType) {
-                    const blocks = bot.findBlocks({ matching: blockType.id, maxDistance: 64, count: 5 });
-                    if (blocks.length > 0) {
-                        bot.chat("Topluyorum...");
-                        await bot.collectBlock.collect(blocks.map(p => bot.blockAt(p)));
-                    } else {
-                        bot.chat("Etrafta bulamadım.");
+            else if (decision.action === "collect") {
+                if (status.gamemode === "Creative") {
+                    bot.chat(`/give @s ${decision.target} 64`);
+                } else {
+                    // Survival Toplama
+                    bot.chat(`${decision.target} topluyorum.`);
+                    const blockType = bot.registry.blocksByName[decision.target] || bot.registry.blocksByName['oak_log'];
+                    if (blockType) {
+                        const blocks = bot.findBlocks({ matching: blockType.id, maxDistance: 64, count: 5 });
+                        if (blocks.length > 0) {
+                            await bot.collectBlock.collect(blocks.map(p => bot.blockAt(p)));
+                            bot.chat("İşlem tamam.");
+                        } else {
+                            bot.chat("Yakında bulamadım.");
+                        }
                     }
                 }
             }
-        }
-        else if (data.action === "follow") {
-            const target = bot.players[MASTER_NAME]?.entity;
-            if (target) {
-                bot.pathfinder.setGoal(new goals.GoalFollow(target, 2), true);
-            } else {
-                bot.chat("/tpa " + MASTER_NAME); // Uzaktaysa TPA atar
+            else if (decision.action === "fight") {
+                const entity = bot.nearestEntity(e => e.name === decision.target || e.mobType === decision.target);
+                if (entity) {
+                    bot.pvp.attack(entity);
+                    bot.chat("Saldırıyorum!");
+                } else {
+                    bot.chat("Düşmanı göremiyorum.");
+                }
             }
+
+        } catch (e) {
+            // Hata olursa (JSON bozuksa) sessiz kal, oyun akışını bozma
         }
-    }
-    
-    // Hata önleyiciler
-    bot.on('kicked', console.log);
-    bot.on('error', console.log);
-    bot.on('end', () => console.log(`${name} düştü.`));
+    });
+
+    bot.on('kicked', (reason) => console.log(`${botName} atıldı: ${reason}`));
+    bot.on('error', (err) => console.log(`${botName} hata: ${err}`));
 }
 
-// İLK BOTU BAŞLAT
+// İLK LİDERİ BAŞLAT
 createHydra('Hydra_Lider');
