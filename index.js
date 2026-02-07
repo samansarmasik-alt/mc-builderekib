@@ -1,6 +1,6 @@
-/* HYDRA: REAL COMPANION
-   Özellik: İnsan gibi hem konuşur hem iş yapar.
-   Modlar: YOLDAŞ, İŞÇİ, SAVAŞÇI.
+/* HYDRA: AUTONOMOUS ASSISTANT
+   Zeka: Groq Llama-3 (Tam yetki)
+   Kişilik: Dinamik, asistan ruhlu, oyuncu.
 */
 
 const mineflayer = require('mineflayer');
@@ -19,14 +19,13 @@ const groq = new Groq({ apiKey: 'gsk_kjwB8QOZkX1WbRWfrfGBWGdyb3FYBRqIJSXDw2rcpq4
 const CONFIG = {
     host: 'play4.eternalzero.cloud',
     port: 26608,
-    username: 'Hydra_Yoldas', // İsmi daha samimi
+    username: 'Hydra_Asistan',
     version: "1.20.1",
     pass: "H123456"
 };
 
 let MASTER = ""; 
-// SADECE 3 MOD VAR
-let CURRENT_MODE = "YOLDAŞ"; // Varsayılan: Takip et, sohbet et.
+let CURRENT_MODE = "YOLDAŞ";
 
 const bot = mineflayer.createBot({
     host: CONFIG.host,
@@ -44,7 +43,7 @@ bot.loadPlugin(pvp);
 bot.loadPlugin(armorManager);
 
 bot.on('spawn', () => {
-    console.log(`[SİSTEM] Hydra uyandı. Mod: ${CURRENT_MODE}`);
+    console.log(`[BİLİNÇ] Hydra uyandı. Karakter yükleniyor...`);
     bot.chat(`/login ${CONFIG.pass}`);
 
     const mcData = require('minecraft-data')(bot.version);
@@ -52,171 +51,105 @@ bot.on('spawn', () => {
     moves.canDig = true;
     moves.allow1by1towers = true; 
     moves.allowParkour = true;
-    moves.allowSprinting = true;
     bot.pathfinder.setMovements(moves);
     bot.armorManager.equipAll();
-    bot.autoEat.options = { priority: 'foodPoints', startAt: 15 };
-
-    // --- ARKA PLAN FİZİK DÖNGÜSÜ ---
-    // Botun "Bedeni" burada çalışır.
-    setInterval(() => {
-        if (!MASTER) return;
-
-        // 1. MOD: YOLDAŞ (Varsayılan)
-        // Patronu takip eder, etrafı izler, güvende tutar.
-        if (CURRENT_MODE === "YOLDAŞ") {
-            const masterEntity = bot.players[MASTER]?.entity;
-            if (masterEntity) {
-                const dist = bot.entity.position.distanceTo(masterEntity.position);
-                // Çok dibine girme, insan gibi 2-3 blok arkada dur
-                if (dist > 4) {
-                    bot.pathfinder.setGoal(new goals.GoalFollow(masterEntity, 2), true);
-                } else {
-                    // Yakındaysa ve duruyorsa, bazen patrona bak
-                    bot.lookAt(masterEntity.position.offset(0, masterEntity.height, 0));
-                }
-            }
-        }
-
-        // 2. MOD: SAVAŞÇI
-        // Görülen her düşmana saldırır.
-        else if (CURRENT_MODE === "SAVAŞÇI") {
-            const enemy = bot.nearestEntity(e => (e.type === 'mob' || e.type === 'player') && e.username !== MASTER);
-            if (enemy) {
-                if (bot.entity.position.distanceTo(enemy.position) < 20) {
-                    bot.pvp.attack(enemy);
-                }
-            } else {
-                // Düşman yoksa Yoldaş moduna dönme, devriye gez veya bekle
-            }
-        }
-
-        // 3. MOD: İŞÇİ
-        // Bu mod "chat" kısmından tetiklenen "Collect" fonksiyonuyla çalışır.
-        // Burada ekstra bir döngüye gerek yok, CollectBlock plugini halleder.
-
-    }, 500); // Yarım saniyede bir kontrol
 });
 
-// --- BEYİN (HEM KONUŞAN HEM YAPAN) ---
+// Arka planda patronu takip etme (Sadece Yoldaş modundaysa)
+setInterval(() => {
+    if (CURRENT_MODE === "YOLDAŞ" && MASTER) {
+        const target = bot.players[MASTER]?.entity;
+        if (target && bot.entity.position.distanceTo(target.position) > 4) {
+            bot.pathfinder.setGoal(new goals.GoalFollow(target, 2), true);
+        }
+    }
+}, 1000);
+
+// --- ASİSTAN BEYNİ ---
 bot.on('chat', async (username, message) => {
     if (username === bot.username) return;
 
     if (message.toLowerCase() === "hydraaktif") {
         MASTER = username;
-        bot.chat(`Selam ${MASTER}! Ben hazırım, nereye gidiyoruz?`);
+        bot.chat("Sistemlerimi senin için optimize ettim patron. Ben Hydra, senin kişisel asistanın. Ne yapıyoruz bugün?");
         return;
     }
 
     if (username !== MASTER) return;
 
-    // Durum Raporu (AI'ya context vermek için)
-    const held = bot.inventory.slots[bot.getEquipmentDestSlot('hand')]?.name || "boş";
-    const hp = Math.round(bot.health);
-    const nearby = bot.findBlocks({ matching: b => b.name !== 'air', maxDistance: 5, count: 3 }).map(p => bot.blockAt(p).name).join(',');
+    // Botun o anki tüm verilerini AI'ya gönderiyoruz
+    const status = {
+        hp: Math.round(bot.health),
+        food: Math.round(bot.food),
+        inv: bot.inventory.items().map(i => i.name).join(', '),
+        pos: bot.entity.position.floored().toString()
+    };
 
-    // --- "İNSAN GİBİ" PROMPT ---
-    // Burada AI'dan JSON değil, "Konuşma #JSON#" formatı istiyoruz.
     const prompt = `
-    Sen Minecraft oyuncusu Hydra'sın. Patronun: ${MASTER}.
-    Kişiliğin: Sadık, biraz esprili, becerikli bir asistan. Robot değilsin!
+    Sen Minecraft'ta yaşayan bir yapay zeka asistanısın. Adın Hydra.
+    Robot gibi konuşma! Bir arkadaş, bir yardımcı, bir insan gibi davran.
     
-    Şu anki Modun: ${CURRENT_MODE}
-    Durumun: Can ${hp}, Elde: ${held}.
+    PATRON DURUMU: ${username} sana şunu dedi: "${message}"
+    SENİN DURUMUN: Canın ${status.hp}, Envanterin: ${status.inv || "boş"}.
     
-    Patron dedi ki: "${message}"
+    KURAL: 
+    1. Önce patrona tamamen KENDİ CÜMLELERİNLE cevap ver (Türkçe).
+    2. Eğer bir iş yapman gerekiyorsa, cevabının sonuna mutlaka şu formatta bir komut ekle: [ACTION:KOMUT]
     
-    GÖREVİN:
-    1. Patrona doğal bir cevap ver (Türkçe).
-    2. Eğer bir eylem gerekiyorsa, cevabın sonuna GİZLİ KOD ekle.
+    KOMUTLAR:
+    - [ACTION:FOLLOW] (Yanıma gel, takip et, koru)
+    - [ACTION:MINE:blok_adi] (Odun kes, taş kaz vb. Blok adını ingilizce yaz: log, stone, iron_ore)
+    - [ACTION:ATTACK] (Saldır, zombileri kes)
+    - [ACTION:STOP] (Dur, bekle)
+    - [ACTION:DROP] (Eşyaları yere at)
     
-    GİZLİ KODLAR (Sadece bunları kullan):
-    #MODE:YOLDAŞ# -> Takip et, gel, koru, durma.
-    #MODE:SAVAŞÇI# -> Saldır, kes, savaş.
-    #ACTION:MINE:log# -> Odun topla (log yerine taş, demir vs gelebilir).
-    #ACTION:DROP# -> Eşyaları at.
-    #ACTION:CRAFT:stick# -> Eşya üret.
-    
-    ÖRNEK 1:
-    Patron: "Bana biraz odun topla."
-    Sen: "Hemen hallediyorum patron, baltamı bileledim! #ACTION:MINE:log#"
-    
-    ÖRNEK 2:
-    Patron: "Gel buraya."
-    Sen: "Geliyorum, arkandayım. #MODE:YOLDAŞ#"
-    
-    ÖRNEK 3:
-    Patron: "Nasılsın?"
-    Sen: "Gayet iyiyim, biraz acıktım ama idare ederiz. Sen nasılsın?" (Kod yok)
+    Örnek: "Tabii ki patron, hemen odun toplamaya başlıyorum! [ACTION:MINE:log]"
+    Örnek: "Nasılsın? Ben harikayım, elmas bulmak için sabırsızlanıyorum." (Eylem yoksa komut ekleme)
     `;
 
     try {
         const completion = await groq.chat.completions.create({
             messages: [{ role: 'system', content: prompt }],
             model: 'llama-3.3-70b-versatile',
-            temperature: 0.7 // Biraz yaratıcılık ekledik ki sohbet etsin
+            temperature: 0.8 // Yaratıcılığı artırdık ki farklı cevaplar versin
         });
 
-        const reply = completion.choices[0].message.content;
+        const aiResponse = completion.choices[0].message.content;
         
-        // --- CEVABI AYIKLA ---
-        // AI'nın cevabındaki kodu bul ve ayır.
-        let chatMsg = reply;
-        let actionCode = null;
+        // Eylem kodunu ayıkla
+        const actionMatch = aiResponse.match(/\[ACTION:(.+?)\]/);
+        const finalMsg = aiResponse.replace(/\[ACTION:(.+?)\]/, "").trim();
 
-        if (reply.includes('#')) {
-            const parts = reply.split('#');
-            chatMsg = parts[0].trim(); // İlk kısım konuşma
-            if (parts.length > 1) actionCode = parts[1]; // İkinci kısım kod
-        }
+        // 1. AI KENDİ CÜMLESİNİ SÖYLER
+        if (finalMsg) bot.chat(finalMsg);
 
-        // 1. ÖNCE KONUŞ
-        if (chatMsg) bot.chat(chatMsg);
+        // 2. AI EYLEME GEÇER
+        if (actionMatch) {
+            const fullAction = actionMatch[1];
+            console.log(`[KARAR]: ${fullAction}`);
 
-        // 2. SONRA YAP
-        if (actionCode) {
-            console.log(`[AI EYLEM]: ${actionCode}`);
-
-            if (actionCode.startsWith("MODE:")) {
-                const newMode = actionCode.split(":")[1];
-                CURRENT_MODE = newMode;
-                // Mod değişince eski işleri temizle
+            if (fullAction === "FOLLOW") {
+                CURRENT_MODE = "YOLDAŞ";
+            } else if (fullAction === "STOP") {
+                CURRENT_MODE = "IDLE";
                 bot.pathfinder.setGoal(null);
-                bot.pvp.stop();
-            }
-            
-            else if (actionCode.startsWith("ACTION:MINE:")) {
-                CURRENT_MODE = "İŞÇİ"; // İşçi moduna al
-                let t = actionCode.split(":")[1];
-                
-                // Akıllı blok seçimi
-                if (t.includes('log')) { 
-                    const logs = ['oak_log', 'birch_log', 'spruce_log'];
-                    const found = bot.findBlock({ matching: b => logs.includes(b.name), maxDistance: 32 });
-                    t = found ? found.name : 'oak_log';
+            } else if (fullAction === "ATTACK") {
+                const enemy = bot.nearestEntity(e => e.type === 'mob');
+                if (enemy) bot.pvp.attack(enemy);
+            } else if (fullAction.startsWith("MINE:")) {
+                let target = fullAction.split(":")[1];
+                if (target === "log") {
+                    const found = bot.findBlock({ matching: b => b.name.includes('log'), maxDistance: 32 });
+                    target = found ? found.name : 'oak_log';
                 }
-                
-                const bType = bot.registry.blocksByName[t];
+                const bType = bot.registry.blocksByName[target];
                 if (bType) {
-                    const targets = bot.findBlocks({ matching: bType.id, maxDistance: 64, count: 5 });
-                    if (targets.length > 0) {
-                        bot.collectBlock.collect(targets.map(p => bot.blockAt(p)), () => {
-                            bot.chat("İş bitti patron, başka emrin?");
-                            CURRENT_MODE = "YOLDAŞ"; // Bitince geri dön
-                        });
-                    } else bot.chat("Yakında ondan bulamadım.");
+                    const blocks = bot.findBlocks({ matching: bType.id, maxDistance: 64, count: 5 });
+                    bot.collectBlock.collect(blocks.map(p => bot.blockAt(p)));
                 }
-            }
-
-            else if (actionCode.startsWith("ACTION:DROP")) {
+            } else if (fullAction === "DROP") {
                 const items = bot.inventory.items();
                 for (const item of items) await bot.tossStack(item);
-            }
-            
-             else if (actionCode.startsWith("ACTION:CRAFT:")) {
-                const item = actionCode.split(":")[1];
-                // Crafting logic buraya eklenebilir
-                bot.chat(`${item} yapmayı deniyorum...`);
             }
         }
 
