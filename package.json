@@ -1,6 +1,6 @@
 {
-  "name": "hydra-god",
-  "version": "4.0.0",
+  "name": "hydra-super",
+  "version": "5.0.0",
   "main": "index.js",
   "dependencies": {
     "mineflayer": "^4.20.0",
