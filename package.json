@@ -1,7 +1,6 @@
 {
-  "name": "hydra-omni",
+  "name": "hydra-ultimate",
   "version": "1.0.0",
-  "description": "Advanced Autonomous Minecraft AI Agent",
   "main": "index.js",
   "dependencies": {
     "mineflayer": "^4.20.0",
