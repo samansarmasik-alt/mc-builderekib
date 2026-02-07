@@ -10,10 +10,13 @@ const v = require('vec3');
 
 const groq = new Groq({ apiKey: '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' });
 
+// BOT ÇÖKMESİNİ ENGELLEYEN SİSTEM
+process.on('uncaughtException', (err) => console.log('HATA ÖNLENDİ:', err));
+
 const bot = mineflayer.createBot({
     host: 'play4.eternalzero.cloud',
     port: 26608,
-    username: 'Hydra_Full_Auto',
+    username: 'Hydra_Stabil_AI',
     version: "1.20.1",
     auth: 'offline'
 });
@@ -26,9 +29,10 @@ bot.loadPlugin(pvp);
 bot.loadPlugin(armorManager);
 
 let MASTER = "";
+let BUSY = false;
 
 bot.on('spawn', () => {
-    console.log(`[OTOMASYON] Hydra Full Auto aktif. Artık her şeyi görüyorum.`);
+    console.log(`[SİSTEM] Hydra Stabil Modda Aktif.`);
     bot.chat("/login H123456");
     
     const mcData = require('minecraft-data')(bot.version);
@@ -37,42 +41,50 @@ bot.on('spawn', () => {
     moves.allowParkour = true;
     moves.allowSprinting = true;
     bot.pathfinder.setMovements(moves);
+    bot.autoEat.options = { priority: 'foodPoints', startAt: 14 };
 });
 
-// Akıllı Blok Bulucu (Odun, Taş, Maden gruplarını otomatik anlar)
-function findTargetBlocks(term, count = 5) {
-    const mcData = require('minecraft-data')(bot.version);
+// AKILLI ARAMA FONKSİYONU
+function findBlocks(term) {
     return bot.findBlocks({
         matching: (block) => {
-            const name = block.name.toLowerCase();
-            if (term === 'log' || term === 'odun') return name.includes('log') || name.includes('stem');
-            if (term === 'stone' || term === 'taş') return name.includes('stone') || name.includes('cobblestone');
-            if (term === 'coal' || term === 'kömür') return name.includes('coal_ore');
-            if (term === 'iron' || term === 'demir') return name.includes('iron_ore');
-            if (term === 'diamond' || term === 'elmas') return name.includes('diamond_ore');
-            return name.includes(term);
+            const n = block.name.toLowerCase();
+            if (term === 'log') return n.includes('log') || n.includes('stem');
+            if (term === 'stone') return n.includes('stone') || n.includes('cobblestone');
+            return n.includes(term);
         },
-        maxDistance: 64, // Görüş mesafesini 64 bloğa çıkardık
-        count: count
+        maxDistance: 64,
+        count: 5
     });
+}
+
+// GÖREV SIFIRLAMA (BOZULMAYI ÖNLEYEN ANAHTAR)
+async function clearAll() {
+    bot.pathfinder.setGoal(null);
+    bot.pvp.stop();
+    try {
+        bot.collectBlock.cancelTask(); // Kazma işlemini durdur
+    } catch (e) {}
+    BUSY = false;
 }
 
 bot.on('chat', async (username, message) => {
     if (username === bot.username) return;
     if (message.toLowerCase() === "hydraaktif") {
         MASTER = username;
-        bot.chat("Tam otomasyon moduna geçtim patron. Gözümden hiçbir şey kaçmaz.");
+        bot.chat("Sistemler stabilize edildi patron. Emirlerini bekliyorum.");
         return;
     }
     if (username !== MASTER) return;
 
+    // YENİ EMİR GELDİ, HER ŞEYİ DURDUR
+    await clearAll();
+
     try {
-        const inventory = bot.inventory.items().map(i => `${i.name}`).join(', ') || "boş";
-        
         const completion = await groq.chat.completions.create({
             messages: [
-                { role: 'system', content: `Sen Minecraft'ta Hydra'sın. [ACTION:MINE:item_name:miktar] veya [ACTION:FOLLOW] komutlarını kullan. Örnek: [ACTION:MINE:log:5]` },
-                { role: 'user', content: `Mesaj: ${message} | Envanter: ${inventory}` }
+                { role: 'system', content: 'Minecraft asistanısın. [ACTION:FOLLOW/MINE:item/ATTACK/STOP/DROP] kodlarını kullan.' },
+                { role: 'user', content: message }
             ],
             model: 'llama-3.3-70b-versatile'
         });
@@ -84,34 +96,35 @@ bot.on('chat', async (username, message) => {
         if (chatMsg) bot.chat(chatMsg);
 
         if (actionMatch) {
-            const parts = actionMatch[1].split(':');
-            const action = parts[0];
+            const action = actionMatch[1];
+            console.log(`[HAREKET]: ${action}`);
 
-            if (action === "MINE") {
-                const target = parts[1];
-                const amount = parseInt(parts[2]) || 3;
-                
-                bot.chat(`${target} aramaya çıkıyorum...`);
-                const blocks = findTargetBlocks(target, amount);
-
+            if (action === "FOLLOW") {
+                const p = bot.players[MASTER]?.entity;
+                if (p) bot.pathfinder.setGoal(new goals.GoalFollow(p, 2), true);
+            } 
+            else if (action.startsWith("MINE:")) {
+                const target = action.split(":")[1];
+                const blocks = findBlocks(target);
                 if (blocks.length > 0) {
-                    try {
-                        await bot.collectBlock.collect(blocks.map(p => bot.blockAt(p)));
-                        bot.chat(`İşlem tamam, ${blocks.length} adet topladım.`);
-                    } catch (err) {
-                        bot.chat("Bazı bloklara ulaşamadım ama aramaya devam ediyorum.");
-                    }
-                } else {
-                    bot.chat("Şu an etrafımda hiç " + target + " göremiyorum, biraz gezip tekrar bakacağım.");
-                    // Bulamazsa rastgele bir yöne 10 blok gidip tekrar araması için hedef verilebilir
-                }
-            } else if (action === "FOLLOW") {
-                const player = bot.players[MASTER]?.entity;
-                if (player) bot.pathfinder.setGoal(new goals.GoalFollow(player, 2), true);
+                    BUSY = true;
+                    bot.collectBlock.collect(blocks.map(p => bot.blockAt(p)), (err) => {
+                        if (err) console.log("Kazma iptal edildi.");
+                        else bot.chat("İşimi bitirdim patron.");
+                        BUSY = false;
+                    });
+                } else bot.chat("Etrafta " + target + " göremiyorum.");
             }
-            // Diğer aksiyonlar (ATTACK, DROP vb.) önceki kodla aynı kalabilir
+            else if (action === "ATTACK") {
+                const e = bot.nearestEntity(e => e.type === 'mob');
+                if (e) bot.pvp.attack(e);
+            }
+            else if (action === "DROP") {
+                for (const item of bot.inventory.items()) await bot.tossStack(item);
+                bot.chat("Envanterimi boşalttım.");
+            }
         }
     } catch (e) {
-        console.error(e);
+        console.error("API HATASI:", e.message);
     }
 });
