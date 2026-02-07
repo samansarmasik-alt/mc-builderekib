@@ -1,7 +1,6 @@
 {
-  "name": "hydra-agi",
-  "version": "10.0.0",
-  "description": "Fully Autonomous Minecraft Artificial Intelligence",
+  "name": "hydra-swarm",
+  "version": "11.0.0",
   "main": "index.js",
   "dependencies": {
     "mineflayer": "^4.20.0",
