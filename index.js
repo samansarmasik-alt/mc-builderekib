@@ -8,7 +8,7 @@ const armorManager = require('mineflayer-armor-manager');
 const { Groq } = require('groq-sdk');
 const v = require('vec3');
 
-// --- PATRONUN VERDİĞİ ÖZEL ANAHTAR ---
+// --- SENİN VERDİĞİN API ANAHTARI ---
 const groq = new Groq({ 
     apiKey: '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' 
 });
@@ -16,10 +16,9 @@ const groq = new Groq({
 const HOST = 'play4.eternalzero.cloud';
 const PORT = 26608;
 
-let MASTER = ""; // "hydraaktif" yazan kişi buraya atanır
-const bots = []; // Bot ordusu listesi
+let MASTER = ""; // "hydraaktif" yazan kişi buraya atanır (hasanok olacak)
+const bots = []; 
 
-// --- BOT FABRİKASI ---
 function createHydra(botName) {
     console.log(`[SİSTEM] ${botName} hazırlanıyor...`);
 
@@ -49,79 +48,104 @@ function createHydra(botName) {
         const moves = new Movements(bot, mcData);
         moves.canDig = true;
         moves.allow1by1towers = true; 
-        moves.allowParkour = true; 
         bot.pathfinder.setMovements(moves);
-
-        // Otonom Ayarlar
         bot.armorManager.equipAll(); 
-        bot.autoEat.options = { priority: 'foodPoints', startAt: 16, bannedFood: ['rotten_flesh', 'spider_eye'] };
+        bot.autoEat.options = { priority: 'foodPoints', startAt: 16 };
+
+        // --- OTONOM YAŞAM DÖNGÜSÜ (Burası Yeni) ---
+        // Her 15 saniyede bir etrafı kontrol eder (Sen yazmasan bile)
+        setInterval(() => lifeLoop(bot), 15000);
     });
 
     // --- GÖZLEM (Gözler) ---
     function getVisualContext() {
         // Yakındaki bloklar
-        const blocks = bot.findBlocks({ matching: (b) => b.name !== 'air', maxDistance: 8, count: 5 });
+        const blocks = bot.findBlocks({ matching: (b) => b.name !== 'air', maxDistance: 10, count: 5 });
         const blockNames = [...new Set(blocks.map(p => bot.blockAt(p).name))].join(', ');
-
         // Yakındaki varlıklar
-        const entity = bot.nearestEntity();
-        const entityName = entity ? (entity.username || entity.name) : "Yok";
-
-        return `Etraf: ${blockNames} | En Yakın: ${entityName}`;
+        const entity = bot.nearestEntity(e => e.type === 'player' || e.type === 'mob');
+        const entityInfo = entity ? `${entity.name} (${Math.floor(bot.entity.position.distanceTo(entity.position))}m uzakta)` : "Kimse yok";
+        return `Bloklar: ${blockNames} | Varlıklar: ${entityInfo}`;
     }
 
-    // --- BEYİN VE EYLEM MERKEZİ ---
+    // --- YAŞAM DÖNGÜSÜ FONKSİYONU ---
+    async function lifeLoop(bot) {
+        if (!MASTER) return; // Patron yoksa kendi kafasına göre iş yapmasın
+        if (bot.pathfinder.isMoving()) return; // Hareket ediyorsa düşünmesin
+
+        const context = getVisualContext();
+        console.log(`[${botName} Gözlem]: ${context}`); // Terminalde ne gördüğünü yazar
+
+        // Otonom Karar İstemi
+        const prompt = `
+        Sen ${bot.username}. Patronun: ${MASTER}.
+        Şu an kimse sana emir vermedi, kendi kendine karar vermelisin.
+        
+        ETRAFINDA GÖRDÜKLERİN: ${context}
+        DURUMUN: Can: ${Math.round(bot.health)}, Envanter: ${bot.inventory.items().length > 0 ? 'Dolu' : 'Boş'}
+        
+        NE YAPMAK İSTERSİN? (JSON DÖN):
+        1. { "action": "idle", "msg": "..." } -> Etraf sakinse bekle veya yorum yap.
+        2. { "action": "watch", "target": "entity_name" } -> Birine bak.
+        3. { "action": "follow_master" } -> Patron çok uzaklaştıysa yanına git.
+        4. { "action": "chat", "msg": "Etrafta X gördüm, toplayayım mı?" } -> Bilgi ver.
+        
+        Sadece JSON ver.
+        `;
+
+        try {
+            const completion = await groq.chat.completions.create({
+                messages: [{ role: 'system', content: prompt }],
+                model: 'llama-3.3-70b-versatile',
+                temperature: 0.4
+            });
+            const res = JSON.parse(completion.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim());
+            
+            if (res.action === "chat") bot.chat(res.msg);
+            if (res.action === "follow_master") {
+                const target = bot.players[MASTER]?.entity;
+                if(target && bot.entity.position.distanceTo(target.position) > 10) {
+                    bot.chat("Çok uzaklaştın patron, geliyorum.");
+                    bot.pathfinder.setGoal(new goals.GoalFollow(target, 2), true);
+                }
+            }
+        } catch(e) {}
+    }
+
+    // --- EYLEM MERKEZİ (Chat Komutları) ---
     bot.on('chat', async (username, message) => {
         if (username === bot.username) return;
 
-        // 1. PATRON SEÇİMİ
+        // 1. PATRON OLMA (Burası kritik, hasanok ismini burası kapacak)
         if (message.toLowerCase() === "hydraaktif") {
             MASTER = username;
-            bot.chat(`Patron sensin ${MASTER}. API Anahtarı aktif ve emrindeyim.`);
+            bot.chat(`Anlaşıldı! Patronum sensin: ${MASTER} (hasanok).`);
+            console.log(`YENİ PATRON: ${MASTER}`);
             return;
         }
 
         // 2. ÇOĞALMA
         if (message.toLowerCase() === "hydracogal" && username === MASTER) {
             if (bot === bots[0]) {
-                const newName = `Hydra_v${Math.floor(Math.random() * 1000)}`;
-                bot.chat(`${newName} kodlu destek birimi oluşturuluyor...`);
+                const newName = `Hydra_v${Math.floor(Math.random() * 100)}`;
                 createHydra(newName);
             }
             return;
         }
 
-        // SADECE PATRONU DİNLE
-        if (username !== MASTER) return;
+        if (username !== MASTER) return; // Başkasını dinleme
 
-        // 3. GROQ AI KARAR MEKANİZMASI
-        const status = {
-            hp: Math.round(bot.health),
-            food: Math.round(bot.food),
-            mode: bot.player.gamemode === 1 ? "Creative" : "Survival",
-            inventory: bot.inventory.items().map(i => i.name).join(',') || "Boş"
-        };
-
+        // 3. AI KOMUT İŞLEYİCİ
         const prompt = `
-        Sen ${bot.username}. Patronun: ${MASTER}.
-        Gelen Emir: "${message}"
+        Sen ${bot.username}. Patronun (${MASTER}) dedi ki: "${message}"
+        Gördüklerin: ${getVisualContext()}
         
-        DURUMUN:
-        - Mod: ${status.mode}
-        - Çanta: ${status.inventory}
-        - Gördüklerin: ${getVisualContext()}
-        
-        GÖREV: Emri analiz et ve JSON döndür.
-        
+        GÖREV: Emri JSON'a çevir.
         SEÇENEKLER:
-        1. { "action": "pvp", "target": "Zombie" } -> Saldır.
-        2. { "action": "mine", "target": "log" } -> Blok kaz (odun/taş vs).
-        3. { "action": "goto", "target": "${MASTER}" } -> Yanına git.
-        4. { "action": "tpa", "target": "${MASTER}" } -> Işınlanma isteği at.
-        5. { "action": "drop", "item": "all" } -> Eşyaları at.
-        6. { "action": "chat", "msg": "..." } -> Cevap ver.
-        
-        KURAL: Sadece saf JSON ver.
+        - { "action": "mine", "target": "log" } (Odun/Taş vb.)
+        - { "action": "pvp", "target": "Zombie" }
+        - { "action": "goto", "target": "${MASTER}" }
+        - { "action": "chat", "msg": "Cevabın" }
         `;
 
         try {
@@ -131,70 +155,44 @@ function createHydra(botName) {
                 temperature: 0.1
             });
 
-            let response = completion.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
-            const decision = JSON.parse(response);
-            
-            console.log(`[${bot.username}] Karar: ${decision.action}`);
+            const decision = JSON.parse(completion.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim());
+            console.log(`[KARAR] ${decision.action}`);
 
-            // --- EYLEMLER ---
-            if (decision.action === "pvp") {
-                const target = bot.nearestEntity(e => e.name === decision.target || e.mobType === decision.target || e.username === decision.target);
-                if (target) {
-                    bot.chat("Saldırıyorum!");
-                    bot.pvp.attack(target);
-                } else {
-                    bot.chat("Düşmanı göremiyorum.");
-                }
+            if (decision.action === "chat") bot.chat(decision.msg);
+            else if (decision.action === "goto") {
+                const t = bot.players[MASTER]?.entity;
+                if(t) bot.pathfinder.setGoal(new goals.GoalFollow(t, 1), true);
+                else bot.chat("/tpa " + MASTER);
             }
             else if (decision.action === "mine") {
-                if (status.mode === "Creative") {
-                    bot.chat(`/give @s ${decision.target} 64`);
-                } else {
-                    // Akıllı Blok Seçimi
-                    let blockName = decision.target;
-                    if(blockName === 'log') { 
-                        const logs = ['oak_log', 'birch_log', 'spruce_log'];
-                        const found = bot.findBlock({ matching: b => logs.includes(b.name), maxDistance: 32 });
-                        if(found) blockName = found.name;
-                        else blockName = 'oak_log';
-                    }
-                    bot.chat(`${blockName} toplamaya gidiyorum.`);
-                    const blockType = bot.registry.blocksByName[blockName];
-                    if (blockType) {
-                        const targets = bot.findBlocks({ matching: blockType.id, maxDistance: 64, count: 5 });
-                        if (targets.length > 0) await bot.collectBlock.collect(targets.map(p => bot.blockAt(p)));
-                    } else {
-                        bot.chat("Yakında bulamadım.");
-                    }
+                bot.chat(`${decision.target} arıyorum...`);
+                // Akıllı blok bulucu
+                let targetName = decision.target;
+                if(targetName === 'log') {
+                    const logs = ['oak_log', 'birch_log', 'spruce_log'];
+                    const found = bot.findBlock({ matching: b => logs.includes(b.name), maxDistance: 30 });
+                    targetName = found ? found.name : 'oak_log';
+                }
+                const blockType = bot.registry.blocksByName[targetName];
+                if(blockType) {
+                    const b = bot.findBlocks({ matching: blockType.id, maxDistance: 64, count: 5 });
+                    if(b.length > 0) await bot.collectBlock.collect(b.map(p => bot.blockAt(p)));
+                    else bot.chat("Yakında yok.");
                 }
             }
-            else if (decision.action === "goto") {
-                const target = bot.players[decision.target]?.entity;
-                if (target) {
-                    bot.chat("Geliyorum...");
-                    bot.pathfinder.setGoal(new goals.GoalFollow(target, 1), true);
-                } else {
-                    bot.chat(`/tpa ${decision.target}`);
-                }
-            }
-            else if (decision.action === "drop") {
-                const items = bot.inventory.items();
-                for (const item of items) await bot.tossStack(item);
-                bot.chat("Her şeyi attım.");
-            }
-            else if (decision.action === "chat") {
-                bot.chat(decision.msg);
+            else if (decision.action === "pvp") {
+                const enemy = bot.nearestEntity(e => e.name === decision.target || e.type === 'mob');
+                if(enemy) bot.pvp.attack(enemy);
             }
 
         } catch (e) {
-            console.log("Hata:", e.message);
-            bot.chat("Beynim karıştı, tekrar söyle.");
+            bot.chat("Kafam karıştı, tekrar söyle.");
         }
     });
 
     bot.on('error', console.log);
-    bot.on('end', () => console.log(`${botName} bağlantısı koptu.`));
+    bot.on('end', () => console.log(`${botName} düştü.`));
 }
 
 // BAŞLAT
-createHydra('Hydra_Prime');
+createHydra('Hydra_Lider');
