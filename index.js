@@ -2,19 +2,19 @@ const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const collectBlock = require('mineflayer-collectblock').plugin;
 const tool = require('mineflayer-tool').plugin;
-const autoEat = require('mineflayer-auto-eat').plugin;
-const pvp = require('mineflayer-pvp').plugin;
-const armorManager = require('mineflayer-armor-manager');
 const { createClient } = require('@supabase/supabase-js');
 const { Groq } = require('groq-sdk');
+const v = require('vec3');
 
 // --- AYARLAR ---
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const BOSS_NAME = "Hasan"; 
-const BOT_NAME = "Hydra_Warlord";
+const BOSS_NAME = "Hasan"; // Kendi adını buraya yaz (Büyük/küçük harf duyarlı!)
+const BOT_NAME = "Hydra_AI_V2";
 
 function startBot() {
+    console.log("Bot başlatılıyor...");
+    
     const bot = mineflayer.createBot({
         host: 'play4.eternalzero.cloud',
         port: 26608,
@@ -23,78 +23,36 @@ function startBot() {
         auth: 'offline'
     });
 
-    // --- YETENEKLERİ YÜKLE ---
     bot.loadPlugin(pathfinder);
     bot.loadPlugin(collectBlock);
     bot.loadPlugin(tool);
-    bot.loadPlugin(autoEat);
-    bot.loadPlugin(pvp);
-    bot.loadPlugin(armorManager);
 
     bot.on('spawn', () => {
-        console.log(`[OTONOM MOD] ${BOT_NAME} savaşa ve gelişime hazır!`);
+        console.log(`${BOT_NAME} sunucuya girdi!`);
         bot.chat("/login H123456");
         
-        // Hareket ayarları
+        // Hareket yeteneklerini aç
         const mcData = require('minecraft-data')(bot.version);
-        bot.pathfinder.setMovements(new Movements(bot, mcData));
-
-        // Zırh Yönetimi (Otomatik en iyisini giyer)
-        bot.armorManager.equipAll();
-
-        // Otomatik Yemek
-        bot.autoEat.options = { priority: 'foodPoints', startAt: 14, bannedFood: [] };
+        const defaultMove = new Movements(bot, mcData);
+        defaultMove.canDig = true;
+        defaultMove.allow1by1towers = true; // Kule yapabilir
+        bot.pathfinder.setMovements(defaultMove);
     });
 
-    // --- 1. OTONOM KORUMA SİSTEMİ (Refleksler) ---
-    // Her saniye etrafı tarar
-    setInterval(() => {
-        const mobFilter = e => e.type === 'mob' && (e.mobType === 'Zombie' || e.mobType === 'Skeleton' || e.mobType === 'Spider' || e.mobType === 'Creeper');
-        const enemy = bot.nearestEntity(mobFilter);
-
-        if (enemy) {
-            // Eğer düşman 10 bloktan yakındaysa ve botun canı varsa saldır
-            if (bot.entity.position.distanceTo(enemy.position) < 10 && bot.health > 5) {
-                // Sadece savaş modundaysa veya saldırıya uğradıysa
-                if (!bot.pvp.target) {
-                    bot.chat("Tehdit algılandı! Savunma protokolü devreye giriyor.");
-                    equipBestWeapon();
-                    bot.pvp.attack(enemy);
-                }
-            }
-        }
-    }, 2000);
-
-    // Biri bota vurursa affetmez
-    bot.on('onCorrelateAttack', (attacker, victim, weapon) => {
-        if (victim === bot.entity) {
-            bot.chat(`Bana mı vurdun ${attacker.username || 'yaratık'}? Hatanı ödeyeceksin!`);
-            equipBestWeapon();
-            bot.pvp.attack(attacker);
-        }
-    });
-
-    // En iyi silahı seçme fonksiyonu
-    async function equipBestWeapon() {
-        const items = bot.inventory.items();
-        const sword = items.find(item => item.name.includes('sword'));
-        const axe = items.find(item => item.name.includes('axe'));
-        if (sword) await bot.equip(sword, 'hand');
-        else if (axe) await bot.equip(axe, 'hand');
-    }
-
-    // --- 2. SÜPER ZEKA VE GELİŞİM ---
+    // --- GERÇEK AI İŞLEMCİSİ ---
     bot.on('chat', async (username, message) => {
         if (username === bot.username) return;
+        
+        // Sadece patron konuşunca devreye gir
         if (!username.toLowerCase().includes(BOSS_NAME.toLowerCase())) return;
 
-        // Durum Analizi
-        const status = {
-            health: bot.health,
-            food: bot.food,
-            enemy: bot.pvp.target ? "FIGHTING" : "SAFE",
-            inventory: bot.inventory.items().map(i => i.name).join(', '),
-            position: bot.entity.position.floored()
+        console.log(`[DUYDU] ${username}: ${message}`);
+
+        // AI'ya gönderilecek durum raporu
+        const botStatus = {
+            gamemode: bot.player.gamemode, // 0: Survival, 1: Creative
+            pos: bot.entity.position.floored(),
+            inventory_full: bot.inventory.emptySlotCount() === 0
         };
 
         try {
@@ -102,71 +60,82 @@ function startBot() {
                 messages: [
                     { 
                         role: 'system', 
-                        content: `Sen Hydra. Minecraft'ta OTONOM bir savaşçı ve yardımcısın.
+                        content: `Sen bir Minecraft botusun. Adın Hydra.
+                        Kullanıcının isteğini analiz et ve kesinlikle JSON formatında cevap ver.
                         
-                        DURUMUN: ${JSON.stringify(status)}
-                        
-                        GÖREVİN: Patronun isteğine göre JSON formatında cevap ver.
-                        
-                        YETENEKLERİN VE FORMATLAR:
-                        1. SAVAŞ / KORU: { "action": "fight", "target": "player_name" } (veya "mobs")
-                        2. TAKİP ET / GEL: { "action": "guard", "target": "follow_boss" }
-                        3. EŞYA TOPLA/GELİŞ: { "action": "loot", "target": "iron_ore" }
-                        4. ZIRH GİY: { "action": "equip" }
-                        5. SOHBET: { "action": "chat", "msg": "Mesajın" }
-                        
-                        Eğer "Kendini geliştir" denirse, etraftaki madenleri toplayıp "loot" yap.
-                        Eğer "Beni koru" denirse "guard" yap.
+                        YAPABİLECEĞİN EYLEMLER (type):
+                        1. "command": Sunucu komutu yazmak için (Örn: /gamemode creative, /tp Hasan, /time set day).
+                        2. "chat": Sohbet etmek için.
+                        3. "collect": Blok toplamak için (Örn: stone, oak_log, dirt).
+                        4. "goto": Birinin yanına gitmek için (target: oyuncu_adı).
+
+                        FORMAT ÖRNEKLERİ:
+                        - "Yaratıcı moda geç": { "type": "command", "content": "/gamemode creative" }
+                        - "Bana ışınlan": { "type": "command", "content": "/tp Hasan" }
+                        - "Taş kaz": { "type": "collect", "content": "stone", "count": 10 }
+                        - "Nasılsın?": { "type": "chat", "content": "İyiyim patron, emret." }
+
+                        ŞU ANKİ DURUMUN: ${JSON.stringify(botStatus)}
+                        DİKKAT: Asla markdown (backticks) kullanma. Sadece saf JSON ver.
                         ` 
                     },
                     { role: 'user', content: message }
                 ],
-                model: 'llama-3.3-70b-versatile',
-                temperature: 0.2
+                model: 'llama-3.3-70b-versatile', // En güçlü model
+                temperature: 0.1 // Yaratıcılığı kısıp itaatkar yapıyoruz
             });
 
-            let aiResponse = completion.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
-            const data = JSON.parse(aiResponse);
+            // Gelen cevabı temizle
+            let rawResponse = completion.choices[0].message.content;
+            console.log(`[AI HAM CEVAP]: ${rawResponse}`); // Bunu terminalde göreceksin!
 
-            console.log("AI Kararı:", data);
+            // JSON temizliği (Bazen AI ```json ekler, onu siliyoruz)
+            rawResponse = rawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+            
+            const action = JSON.parse(rawResponse);
 
-            if (data.action === "fight") {
-                const target = bot.players[BOSS_NAME]?.entity; // Örnek hedef
-                // Burada hedef belirleme mantığı eklenebilir
-                bot.chat("Savaş moduna geçildi!");
+            // --- EYLEME DÖKME ---
+            if (action.type === 'command') {
+                console.log(`[KOMUT] ${action.content}`);
+                bot.chat(action.content);
+            } 
+            else if (action.type === 'chat') {
+                bot.chat(action.content);
             }
-            else if (data.action === "guard") {
-                const boss = bot.players[BOSS_NAME]?.entity;
-                if (boss) {
-                    bot.chat("Seni korumak için takip ediyorum patron.");
-                    bot.pvp.stop(); // Eski savaşı bırak
-                    bot.pathfinder.setGoal(new goals.GoalFollow(boss, 2), true);
+            else if (action.type === 'collect') {
+                bot.chat(`${action.content} aramaya başlıyorum...`);
+                const blockType = bot.registry.blocksByName[action.content];
+                if (blockType) {
+                    const blocks = bot.findBlocks({ matching: blockType.id, maxDistance: 64, count: action.count || 5 });
+                    if (blocks.length > 0) {
+                        await bot.collectBlock.collect(blocks.map(p => bot.blockAt(p)));
+                        bot.chat("Toplama bitti.");
+                    } else {
+                        bot.chat("Etrafta ondan bulamadım.");
+                    }
+                } else {
+                    bot.chat("Böyle bir blok bilmiyorum.");
                 }
             }
-            else if (data.action === "equip") {
-                bot.chat("Envanterimi tarıyorum, en iyi ekipmanları giyiyorum.");
-                bot.armorManager.equipAll();
-                equipBestWeapon();
-            }
-            else if (data.action === "chat") {
-                bot.chat(data.msg);
-            }
-            else if (data.action === "loot") {
-                 // Maden toplama kodu buraya tetiklenir
-                 bot.chat("Gelişmek için kaynak arıyorum.");
+            else if (action.type === 'goto') {
+                const targetName = action.content || BOSS_NAME;
+                const target = bot.players[targetName]?.entity;
+                if (target) {
+                    bot.chat("Geliyorum...");
+                    bot.pathfinder.setGoal(new goals.GoalFollow(target, 1), true);
+                } else {
+                    bot.chat("Seni göremiyorum, '/tp' kullanayım mı?");
+                }
             }
 
         } catch (e) {
-            console.log("Hata:", e.message);
+            console.log("HATA:", e.message);
+            bot.chat("Bir hata oluştu patron. Terminali kontrol et.");
         }
     });
 
-    // --- 3. ÖLÜM VE YENİDEN DOĞUŞ ---
-    bot.on('death', () => {
-        bot.chat("Öldüm ama daha güçlü döneceğim!");
-    });
-
-    bot.on('end', () => setTimeout(startBot, 10000));
+    bot.on('kicked', console.log);
+    bot.on('error', console.log);
 }
 
 startBot();
