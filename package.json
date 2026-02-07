@@ -1,6 +1,6 @@
 {
-  "name": "hydra-swarm",
-  "version": "11.0.0",
+  "name": "hydra-swarm-fix",
+  "version": "12.0.0",
   "main": "index.js",
   "dependencies": {
     "mineflayer": "^4.20.0",
