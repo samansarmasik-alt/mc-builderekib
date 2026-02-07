@@ -1,6 +1,7 @@
 {
-  "name": "hydra-ultimate",
-  "version": "1.0.0",
+  "name": "hydra-gemini-ai",
+  "version": "2.0.0",
+  "description": "Gemini 1.5 Pro Powered Minecraft AI Assistant",
   "main": "index.js",
   "dependencies": {
     "mineflayer": "^4.20.0",
@@ -11,7 +12,10 @@
     "mineflayer-pvp": "^1.3.2",
     "mineflayer-armor-manager": "^1.4.0",
     "minecraft-data": "^3.59.0",
-    "groq-sdk": "^0.3.3",
+    "@google/generative-ai": "^0.21.0",
     "vec3": "^0.1.8"
+  },
+  "scripts": {
+    "start": "node index.js"
   }
 }
