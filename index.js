@@ -1,6 +1,6 @@
-/* PROJECT HYDRA: OMNI (STABLE JSON FIX)
+/* PROJECT HYDRA: OMNI (NO-MIMIC FIX)
    Author: Gemini Advanced (For Patron)
-   Fix: Advanced JSON Extraction & Debugging
+   Fix: Prevents AI from repeating user input (Echo/Parrot fix)
 */
 
 const mineflayer = require('mineflayer');
@@ -13,7 +13,7 @@ const armorManager = require('mineflayer-armor-manager');
 const { Groq } = require('groq-sdk');
 const v = require('vec3');
 
-// --- YAPILANDIRMA ---
+// --- ANAHTAR VE AYARLAR ---
 const groq = new Groq({ apiKey: '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' });
 const CONFIG = {
     host: 'play4.eternalzero.cloud',
@@ -27,7 +27,7 @@ const SWARM = [];
 
 function log(botName, msg) { console.log(`[${botName}] ${msg}`); }
 
-// --- JSON TEMİZLEYİCİ (CERRAHİ MÜDAHALE) ---
+// --- JSON CERRAHI (Hata Önleyici) ---
 function extractJSON(text) {
     try {
         const startIndex = text.indexOf('{');
@@ -35,14 +35,12 @@ function extractJSON(text) {
         if (startIndex !== -1 && endIndex !== -1) {
             return text.substring(startIndex, endIndex + 1);
         }
-        return text; // JSON bulamazsa olduğu gibi döndür (Hata verir ama logda görürüz)
-    } catch (e) {
         return text;
-    }
+    } catch (e) { return text; }
 }
 
 function createHydra(name) {
-    log('SİSTEM', `${name} başlatılıyor...`);
+    log('SİSTEM', `${name} hazırlanıyor...`);
 
     const bot = mineflayer.createBot({
         host: CONFIG.host,
@@ -73,11 +71,9 @@ function createHydra(name) {
 
         bot.armorManager.equipAll();
         bot.autoEat.options = { priority: 'foodPoints', startAt: 15 };
-
-        // Otonom döngü
-        setInterval(() => consciousnessLoop(bot), 15000);
     });
 
+    // --- GÖZLEM ---
     function scanEnvironment() {
         const blocks = bot.findBlocks({ matching: (b) => b.name !== 'air', maxDistance: 10, count: 5 });
         const blockNames = [...new Set(blocks.map(p => bot.blockAt(p).name))].join(', ') || "Hava";
@@ -86,18 +82,7 @@ function createHydra(name) {
             .filter(e => bot.entity.position.distanceTo(e.position) < 15 && e !== bot.entity)
             .map(e => e.username || e.mobType)
             .join(', ') || "Kimse yok";
-        
         return { blocks: blockNames, entities: entities };
-    }
-
-    // --- BİLİNÇ DÖNGÜSÜ ---
-    async function consciousnessLoop(bot) {
-        if (!MASTER_USER) return;
-        if (bot.pathfinder.isMoving()) return;
-
-        const env = scanEnvironment();
-        // Otonom düşünceyi basitleştirip sadece hayati durumlarda tetikleyelim
-        // (Kod kalabalığı yapmasın diye şimdilik boş geçiyorum, chat komutu önemli)
     }
 
     // --- KOMUT İŞLEYİCİ ---
@@ -107,7 +92,7 @@ function createHydra(name) {
         // 1. LİDERLİK
         if (message.toLowerCase() === "hydraaktif") {
             MASTER_USER = username;
-            bot.chat(`Patron tanımlandı: ${MASTER_USER}.`);
+            bot.chat(`Emredersin Patron ${MASTER_USER}. Papağan modu kapalı.`);
             return;
         }
 
@@ -122,62 +107,68 @@ function createHydra(name) {
 
         if (username !== MASTER_USER) return;
 
-        // 3. AI ANALİZİ
+        // 3. ZEKİ ANALİZ (Anti-Papağan Prompt)
         const env = scanEnvironment();
         const mode = bot.player.gamemode === 1 ? "Creative" : "Survival";
         
         const prompt = `
         Sen ${bot.username}. Mod: ${mode}.
-        Komut: "${message}"
+        Patron (${MASTER_USER}) dedi ki: "${message}"
         
         ÇEVRE: ${env.blocks} | VARLIKLAR: ${env.entities}
         
-        Görevi yap ve SADECE JSON döndür. Asla başka yazı yazma.
+        GÖREV: Emri anla ve JSON aksiyonu ver.
+        
+        ÇOK ÖNEMLİ KURAL: Patronun söylediği cümleyi ASLA tekrar etme. 
+        Eğer "yanıma gel" derse, sakın "yanıma gel" deme. { "action": "goto" } ver.
         
         SEÇENEKLER:
-        1. { "action": "mine", "target": "log" }
-        2. { "action": "pvp", "target": "Zombie" }
-        3. { "action": "goto", "target": "${MASTER_USER}" }
-        4. { "action": "chat", "msg": "..." }
-        5. { "action": "drop" }
+        1. { "action": "mine", "target": "log" } -> Blok kaz.
+        2. { "action": "pvp", "target": "Zombie" } -> Saldır.
+        3. { "action": "goto", "target": "${MASTER_USER}" } -> Yanına git / Takip et.
+        4. { "action": "chat", "msg": "Tamamdır." } -> Cevap ver (Kısa ve öz).
+        5. { "action": "drop" } -> Eşya at.
         
-        NOT: "odun" denirse ve etrafta "oak_log" varsa target="oak_log" yap.
+        Sadece JSON döndür.
         `;
 
         try {
             const completion = await groq.chat.completions.create({
                 messages: [{ role: 'system', content: prompt }],
                 model: 'llama-3.3-70b-versatile',
-                temperature: 0.1 // Yaratıcılığı kısıp hatayı azaltıyoruz
+                temperature: 0.1 // Yaratıcılık düşük, hata payı az
             });
             
             const rawText = completion.choices[0].message.content;
-            console.log(`[AI HAM CEVAP]: ${rawText}`); // HATA OLURSA BURAYA BAK
+            console.log(`[AI DÜŞÜNCESİ]: ${rawText}`); 
 
             const jsonText = extractJSON(rawText);
             const cmd = JSON.parse(jsonText);
             
-            log(bot.username, `Emir Algılandı: ${cmd.action}`);
+            // Güvenlik Kontrolü: Eğer AI papağan gibi mesajı tekrar ederse engelle
+            if (cmd.action === "chat" && cmd.msg.toLowerCase() === message.toLowerCase()) {
+                console.log("Papağanlık engellendi.");
+                return; // Hiçbir şey yapma
+            }
+
             executeAction(bot, cmd, mode);
 
         } catch (e) {
-            console.log(`[JSON HATASI]: ${e.message}`);
-            // Hata olursa chat'e basma ki spam olmasın, terminale bas.
-            bot.chat("Beynim karıştı (JSON Hatası). Terminale bak patron.");
+            console.log(`[HATA]: ${e.message}`);
         }
     });
 
     bot.on('error', console.log);
 }
 
-// --- EYLEM MOTORU ---
+// --- EYLEMLER ---
 async function executeAction(bot, cmd, mode) {
     if (cmd.action === "chat") bot.chat(cmd.msg);
     
     else if (cmd.action === "goto") {
         const target = bot.players[MASTER_USER]?.entity;
         if (target) {
-            bot.chat("Geliyorum.");
+            bot.chat("Geliyorum patron.");
             bot.pathfinder.setGoal(new goals.GoalFollow(target, 1), true);
         } else {
             bot.chat(`/tpa ${MASTER_USER}`);
@@ -189,13 +180,13 @@ async function executeAction(bot, cmd, mode) {
             bot.chat(`/give @s ${cmd.target} 64`);
         } else {
             let t = cmd.target;
-            if (t.includes('log')) { // Akıllı ağaç seçimi
+            if (t.includes('log')) { 
                 const logs = ['oak_log', 'birch_log', 'spruce_log'];
                 const found = bot.findBlock({ matching: b => logs.includes(b.name), maxDistance: 32 });
                 t = found ? found.name : 'oak_log';
             }
             
-            bot.chat(`${t} arıyorum...`);
+            bot.chat(`${t} kazıyorum.`);
             const bType = bot.registry.blocksByName[t];
             if (bType) {
                 const targets = bot.findBlocks({ matching: bType.id, maxDistance: 64, count: 5 });
@@ -209,8 +200,10 @@ async function executeAction(bot, cmd, mode) {
 
     else if (cmd.action === "pvp") {
         const enemy = bot.nearestEntity(e => e.username === cmd.target || e.mobType === cmd.target || e.type === 'mob');
-        if (enemy) bot.pvp.attack(enemy);
-        else bot.chat("Düşman yok.");
+        if (enemy) {
+            bot.chat("Saldırıyorum!");
+            bot.pvp.attack(enemy);
+        }
     }
     
     else if (cmd.action === "drop") {
@@ -220,4 +213,4 @@ async function executeAction(bot, cmd, mode) {
     }
 }
 
-createHydra('Hydra_Prime');
+createHydra('Hydra_Lider');
