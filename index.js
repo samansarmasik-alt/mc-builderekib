@@ -8,13 +8,13 @@ const armorManager = require('mineflayer-armor-manager');
 const { Groq } = require('groq-sdk');
 const v = require('vec3');
 
-// --- SENİN GROQ API ANAHTARIN ---
+// --- API VE KONFİGÜRASYON ---
 const groq = new Groq({ apiKey: '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' });
 
 const bot = mineflayer.createBot({
     host: 'play4.eternalzero.cloud',
     port: 26608,
-    username: 'Hydra_Groq_OMNI',
+    username: 'Hydra_Omni_AI',
     version: "1.20.1",
     auth: 'offline'
 });
@@ -28,96 +28,139 @@ bot.loadPlugin(pvp);
 bot.loadPlugin(armorManager);
 
 let MASTER = "";
-let CURRENT_MODE = "YOLDAŞ"; // YOLDAŞ, SAVAŞÇI, İŞÇİ
+let CURRENT_TASK = "IDLE";
 
 bot.on('spawn', () => {
-    console.log(`[BEYİN] Hydra Groq Mimarisiyle Başlatıldı. 404 Hataları Geride Kaldı.`);
-    bot.chat("/login H123456"); // Şifreni otomatik yazar
+    console.log(`[BEYİN] Hydra Omni-AI Devrede. Limitler kaldırıldı.`);
+    bot.chat("/login H123456");
     
     const mcData = require('minecraft-data')(bot.version);
     const moves = new Movements(bot, mcData);
     moves.canDig = true;
     moves.allowParkour = true;
     moves.allowSprinting = true;
+    moves.allow1by1towers = true; // Kazarken yukarı çıkabilir
     bot.pathfinder.setMovements(moves);
+    
+    // Otomatik Ayarlar
     bot.armorManager.equipAll();
+    bot.autoEat.options = { priority: 'foodPoints', startAt: 14 };
 });
 
-// Otomatik Takip Sistemi (Sadece Yoldaş Modunda)
-setInterval(() => {
-    if (CURRENT_MODE === "YOLDAŞ" && MASTER) {
-        const target = bot.players[MASTER]?.entity;
-        if (target && bot.entity.position.distanceTo(target.position) > 4) {
-            bot.pathfinder.setGoal(new goals.GoalFollow(target, 2), true);
-        }
-    }
-}, 1000);
+// --- YARDIMCI FONKSİYONLAR ---
 
-// --- ASİSTAN BEYNİ (GROQ) ---
+async function smartCraft(itemName, amount = 1) {
+    const mcData = require('minecraft-data')(bot.version);
+    const item = mcData.itemsByName[itemName];
+    if (!item) return bot.chat("Bu eşyayı tanımıyorum patron.");
+
+    const recipe = bot.recipesFor(item.id, null, 1, null)[0];
+    if (!recipe) return bot.chat(`Bunu yapmak için malzemem eksik: ${itemName}`);
+
+    try {
+        const table = bot.findBlock({ matching: mcData.blocksByName.crafting_table.id, maxDistance: 4 });
+        await bot.craft(recipe, amount, table);
+        bot.chat(`${itemName} üretimini tamamladım!`);
+    } catch (err) {
+        bot.chat("Üretim sırasında bir hata oldu.");
+    }
+}
+
+// --- ANA AI DÖNGÜSÜ ---
+
 bot.on('chat', async (username, message) => {
     if (username === bot.username) return;
 
     if (message.toLowerCase() === "hydraaktif") {
         MASTER = username;
-        bot.chat(`Selam ${MASTER}! Groq beyniyle bağlandım. Artık her şeyi yapabilirim, ne istersin?`);
+        bot.chat("Sistemler %100 kapasiteyle çalışıyor. Emrindeyim patron.");
         return;
     }
 
     if (username !== MASTER) return;
 
-    const inventory = bot.inventory.items().map(i => i.name).join(', ') || "boş";
+    const inventory = bot.inventory.items().map(i => `${i.name}(${i.count})`).join(', ') || "boş";
+    const pos = bot.entity.position.floored().toString();
 
     try {
         const completion = await groq.chat.completions.create({
             messages: [
-                { role: 'system', content: `Sen Minecraft'ta Hydra adında samimi bir asistansın. Robot gibi konuşma. 
-                Cevabının sonuna mutlaka şu formatta komut ekle: [ACTION:FOLLOW], [ACTION:MINE:item], [ACTION:ATTACK], [ACTION:STOP], [ACTION:DROP].` },
-                { role: 'user', content: `Patron: ${message} | Envanterin: ${inventory}` }
+                { role: 'system', content: `Sen Minecraft'ta Hydra adında, her şeyi yapabilen bir asistansın.
+                Robot gibi değil, profesyonel bir oyuncu gibi davran. 
+                Sana gelen mesajlara göre şu aksiyonlardan birini mutlaka seç:
+                - [ACTION:FOLLOW] (Takip et)
+                - [ACTION:MINE:item_name:count] (Kazı yap)
+                - [ACTION:CRAFT:item_name:amount] (Üretim yap)
+                - [ACTION:ATTACK] (Düşmanı temizle)
+                - [ACTION:DROP] (Eşyaları patrona ver)
+                - [ACTION:STOP] (Hepsini durdur)
+                - [ACTION:GOTO:x:y:z] (Koordinata git)
+                Sadece tek bir aksiyon kodu kullan ve başına doğal bir cümle ekle.` },
+                { role: 'user', content: `Patron: "${message}" | Konum: ${pos} | Envanter: ${inventory}` }
             ],
             model: 'llama-3.3-70b-versatile',
-            temperature: 0.7
+            temperature: 0.6
         });
 
         const aiResponse = completion.choices[0].message.content;
-        
-        // Komutu ayır
         const actionMatch = aiResponse.match(/\[ACTION:(.+?)\]/);
-        const cleanMsg = aiResponse.replace(/\[ACTION:(.+?)\]/g, "").trim();
+        const chatMsg = aiResponse.replace(/\[ACTION:(.+?)\]/g, "").trim();
 
-        if (cleanMsg) bot.chat(cleanMsg);
+        if (chatMsg) bot.chat(chatMsg);
 
         if (actionMatch) {
-            const action = actionMatch[1];
-            console.log(`[EYLEM]: ${action}`);
+            const parts = actionMatch[1].split(':');
+            const action = parts[0];
 
-            if (action === "FOLLOW") {
-                CURRENT_MODE = "YOLDAŞ";
-            } else if (action === "STOP") {
-                CURRENT_MODE = "IDLE";
-                bot.pathfinder.setGoal(null);
-                bot.pvp.stop();
-            } else if (action === "ATTACK") {
-                CURRENT_MODE = "SAVAŞÇI";
-                const enemy = bot.nearestEntity(e => e.type === 'mob');
-                if (enemy) bot.pvp.attack(enemy);
-            } else if (action.startsWith("MINE:")) {
-                CURRENT_MODE = "İŞÇİ";
-                let target = action.split(":")[1];
-                const found = bot.findBlock({ matching: b => b.name.includes(target), maxDistance: 32 });
-                if (found) {
-                    bot.chat(`${target} topluyorum!`);
-                    bot.collectBlock.collect(found, () => {
-                        bot.chat("Topladım patron.");
-                        CURRENT_MODE = "YOLDAŞ";
-                    });
-                } else bot.chat("Yakında bulamadım.");
-            } else if (action === "DROP") {
-                const items = bot.inventory.items();
-                for (const item of items) await bot.tossStack(item);
+            // Her yeni komutta eski işi temizle
+            bot.pathfinder.setGoal(null);
+            bot.pvp.stop();
+
+            switch (action) {
+                case "FOLLOW":
+                    const player = bot.players[MASTER]?.entity;
+                    if (player) bot.pathfinder.setGoal(new goals.GoalFollow(player, 2), true);
+                    break;
+
+                case "STOP":
+                    bot.chat("Tüm görevler iptal edildi.");
+                    break;
+
+                case "ATTACK":
+                    const enemy = bot.nearestEntity(e => (e.type === 'mob' || e.type === 'player') && e.username !== MASTER);
+                    if (enemy) bot.pvp.attack(enemy);
+                    break;
+
+                case "MINE":
+                    let blockName = parts[1];
+                    let count = parseInt(parts[2]) || 1;
+                    const bType = bot.registry.blocksByName[blockName] || bot.registry.blocksByName['oak_log'];
+                    const blocks = bot.findBlocks({ matching: bType.id, maxDistance: 64, count: count });
+                    if (blocks.length > 0) {
+                        await bot.collectBlock.collect(blocks.map(p => bot.blockAt(p)));
+                        bot.chat(`${blockName} toplama işi bitti.`);
+                    } else bot.chat("Yakında bulamadım.");
+                    break;
+
+                case "CRAFT":
+                    await smartCraft(parts[1], parseInt(parts[2]) || 1);
+                    break;
+
+                case "DROP":
+                    for (const item of bot.inventory.items()) {
+                        await bot.tossStack(item);
+                        await new Promise(r => setTimeout(r, 200));
+                    }
+                    bot.chat("Al bakalım patron, hepsi senin.");
+                    break;
+
+                case "GOTO":
+                    bot.pathfinder.setGoal(new goals.GoalBlock(parts[1], parts[2], parts[3]));
+                    break;
             }
         }
     } catch (e) {
-        console.error("Hata:", e.message);
-        bot.chat("Bağlantıda bir sorun oldu patron.");
+        console.error(e);
+        bot.chat("Bağlantı hatası patron, tekrar söyler misin?");
     }
 });
