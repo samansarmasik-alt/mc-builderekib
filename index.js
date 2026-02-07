@@ -9,7 +9,7 @@ const v = require('vec3');
 // --- AYARLAR ---
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const BOSS_NAME = "Hasan"; 
+const BOSS_NAME = "Hasan"; // Kendi tam ismin
 const BOT_NAME = "Hydra_AI";
 
 function startBot() {
@@ -26,76 +26,41 @@ function startBot() {
     bot.loadPlugin(tool);
 
     bot.on('spawn', () => {
-        console.log(`[GOD MODE] ${BOT_NAME} yetkili modda başlatıldı.`);
+        console.log(`[GPS AKTİF] ${BOT_NAME} koordinat uydusuna bağlandı.`);
         bot.chat("/login H123456");
-        // Botun hareket yeteneklerini tanımla
         const mcData = require('minecraft-data')(bot.version);
-        const defaultMove = new Movements(bot, mcData);
-        defaultMove.canDig = true;
-        defaultMove.placeCost = 1; // Blok koymayı sevsin
-        bot.pathfinder.setMovements(defaultMove);
+        bot.pathfinder.setMovements(new Movements(bot, mcData));
     });
 
-    // --- ÇEVRE ANALİZİ (Gözler) ---
-    function scanEnvironment() {
-        const blocks = bot.findBlocks({
-            matching: (block) => block.name.includes('log') || block.name.includes('ore'),
-            maxDistance: 10,
-            count: 10
-        });
-        // Sadece isimleri al ve benzersizleri listele
-        const names = [...new Set(blocks.map(p => bot.blockAt(p).name))];
-        return names.join(', ');
-    }
-
-    // --- İNŞAAT MOTORU (AI Koordinat Verir, Bot Yapar) ---
-    async function buildStructure(buildData) {
-        bot.chat("İnşaata başlıyorum...");
-        const ref = bot.entity.position.floored(); // Botun şu anki yeri referans
-
-        for (const block of buildData) {
-            try {
-                // Göreceli konum (Botun 2 blok önü, 1 blok yukarısı gibi)
-                const targetPos = ref.offset(block.x, block.y, block.z);
-                
-                // Oraya git
-                await bot.pathfinder.goto(new goals.GoalNear(targetPos.x, targetPos.y, targetPos.z, 4));
-                
-                // Yüzünü dön
-                await bot.lookAt(targetPos);
-
-                // Eğer elinde o blok yoksa Creative moddan al
-                const item = bot.registry.itemsByName[block.type];
-                if (!bot.inventory.items().find(i => i.name === block.type)) {
-                    bot.chat(`/give @s ${block.type} 64`);
-                    await bot.waitForTicks(20); // Eşya gelmesi için bekle
-                }
-
-                // Bloğu koy (Referans bloğu bulmamız lazım, havaya koyamaz)
-                // Basitlik için: Eğer hedef boşsa ve altında blok varsa koymayı dener
-                const blockBelow = bot.blockAt(targetPos.offset(0, -1, 0));
-                if (blockBelow && blockBelow.name !== 'air') {
-                     await bot.placeBlock(blockBelow, new v(0, 1, 0));
-                }
-            } catch (e) {
-                console.log("Blok koyma hatası:", e.message);
-            }
+    // --- SENİN KOORDİNATINI BULMA ---
+    function getBossLocation() {
+        const boss = bot.players[BOSS_NAME]?.entity;
+        if (boss) {
+            return {
+                visible: true,
+                x: Math.floor(boss.position.x),
+                y: Math.floor(boss.position.y),
+                z: Math.floor(boss.position.z),
+                distance: Math.floor(bot.entity.position.distanceTo(boss.position))
+            };
+        } else {
+            return { visible: false, info: "Görüş mesafesinde değil veya sunucuda yok." };
         }
-        bot.chat("Yapı tamamlandı.");
     }
 
-    // --- SÜPER BEYİN (Komut ve İnşaat Yetkili) ---
+    // --- SÜPER BEYİN (GPS Destekli) ---
     bot.on('chat', async (username, message) => {
         if (username === bot.username) return;
         if (!username.toLowerCase().includes(BOSS_NAME.toLowerCase())) return;
 
-        // Çevrede ne var?
-        const nearby = scanEnvironment();
+        // 1. Verileri Topla
+        const bossLoc = getBossLocation();
+        const botLoc = bot.entity.position.floored();
         
-        // Botun durumu
-        const status = {
-            gamemode: bot.player.gamemode,
-            nearby_blocks: nearby,
+        // Botun Durum Özeti (Prompt için)
+        const statusReport = {
+            my_location: { x: botLoc.x, y: botLoc.y, z: botLoc.z },
+            boss_location: bossLoc,
             inventory: bot.inventory.items().map(i => i.name).join(', ')
         };
 
@@ -104,25 +69,22 @@ function startBot() {
                 messages: [
                     { 
                         role: 'system', 
-                        content: `Sen Minecraft'ta YETKİLİ (OP) bir botsun. Her şeyi yapabilirsin. 
+                        content: `Sen Minecraft'ta "Hydra" isimli gelişmiş bir Yapay Zekasın.
                         
-                        Kullanıcı isteğine göre şu JSON formatında CEVAP VERMELİSİN:
+                        ŞU ANKİ DURUMUN: ${JSON.stringify(statusReport)}
+                        
+                        GÖREVİN: Kullanıcının (Patron) isteğine göre JSON formatında emir oluşturmak.
+                        
+                        KURALLAR:
+                        1. Eğer patron ÇOK UZAKTAYSA (>50 blok) ve yanına gelmeni istiyorsa "/tp" komutunu kullan.
+                        2. Eğer patron YAKINDAYSA yürüyerek git (pathfinder).
+                        3. Eğer "yanıma ev yap" derse, patronun koordinatlarını (boss_location) kullan.
 
-                        1. KOMUT KULLANMA (Creative geçmek, saat değiştirmek, ışınlanmak):
-                        { "action": "command", "cmd": "/gamemode creative" }
-
-                        2. BLOK TOPLAMA (Survival ise):
-                        { "action": "collect", "target": "birch_log" } 
-                        (DİKKAT: "nearby_blocks" listesine bak. Eğer "oak_log" yoksa "birch_log" seç!)
-
-                        3. İNŞAAT YAPMA (Build):
-                        { "action": "build", "blocks": [ {"x": 1, "y": 0, "z": 0, "type": "stone"}, {"x": 2, "y": 0, "z": 0, "type": "stone"} ] }
-                        (Botun olduğu yere göre X, Y, Z farkları. Basit yapılar kur.)
-
-                        4. SOHBET:
-                        { "action": "chat", "msg": "Tamamdır patron." }
-
-                        DURUMUN: ${JSON.stringify(status)}
+                        CEVAP FORMATLARI (Sadece JSON):
+                        - Komut: { "action": "command", "cmd": "/tp Hasan" }
+                        - Yürüme: { "action": "move", "x": 100, "y": 64, "z": -200 }
+                        - Sohbet: { "action": "chat", "msg": "Patron X:100 Y:64 konumundasın, geliyorum." }
+                        - İnşaat/Eşya: { "action": "collect", "target": "oak_log" }
                         ` 
                     },
                     { role: 'user', content: message }
@@ -136,32 +98,30 @@ function startBot() {
 
             console.log("AI Kararı:", data);
 
-            // --- EYLEMLER ---
+            // --- EYLEMLERİ UYGULA ---
             if (data.action === "command") {
                 bot.chat(data.cmd);
             } 
             else if (data.action === "chat") {
                 bot.chat(data.msg);
             }
-            else if (data.action === "collect") {
-                bot.chat(`${data.target} topluyorum.`);
-                const blockType = bot.registry.blocksByName[data.target];
-                if (blockType) {
-                    const blocks = bot.findBlocks({ matching: blockType.id, maxDistance: 64, count: 5 });
-                    if (blocks.length > 0) {
-                        await bot.collectBlock.collect(blocks.map(p => bot.blockAt(p)));
-                    }
-                }
+            else if (data.action === "move") {
+                bot.chat(`Hedefe yürüyorum: ${data.x}, ${data.y}, ${data.z}`);
+                bot.pathfinder.setGoal(new goals.GoalNear(data.x, data.y, data.z, 1));
             }
-            else if (data.action === "build") {
-                // İnşaat moduna geç
-                bot.chat("/gamemode creative");
-                await buildStructure(data.blocks);
+            else if (data.action === "collect") {
+                // (Toplama kodu önceki gibi kalır)
+                const blockType = bot.registry.blocksByName[data.target];
+                if(blockType) {
+                    const blocks = bot.findBlocks({ matching: blockType.id, maxDistance: 64, count: 5 });
+                    if(blocks.length > 0) await bot.collectBlock.collect(blocks.map(p => bot.blockAt(p)));
+                }
             }
 
         } catch (e) {
-            console.log("AI Hatası:", e);
-            bot.chat("Beynim yandı ama deniyorum...");
+            console.log("AI Hatası:", e.message);
+            // Hata olursa en azından konuşsun
+            bot.chat("Hesaplama hatası yaptım patron.");
         }
     });
 
